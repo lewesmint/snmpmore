@@ -1,0 +1,10 @@
+{
+  "exclude": [
+    "mibs/",
+    "reference/"
+  ],
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false
+}

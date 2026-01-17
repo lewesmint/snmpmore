@@ -50,9 +50,9 @@ from __future__ import annotations
 
 import os
 import signal
-import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import netsnmpagent
 
@@ -114,7 +114,7 @@ my_string = agent.OctetString(
     writable=True,
 )
 
-my_counter = agent.Integer32(
+my_counter: Any = agent.Integer32(
     oidstr=f"{ENTERPRISE_OID}.1.2.0",  # .1.3.6.1.4.1.99999.1.2.0
     initval=0,
     writable=False,
@@ -193,7 +193,7 @@ def update_values() -> None:
     populate_table()
 
 
-def shutdown_handler(signum: int, frame) -> None:
+def shutdown_handler(signum: int, frame: object) -> None:
     """Clean shutdown on SIGTERM/SIGINT."""
     _ = (signum, frame)
     print("\nShutting down...")

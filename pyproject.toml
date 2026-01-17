@@ -1,0 +1,15 @@
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unreachable = true
+show_error_codes = true
+ignore_missing_imports = true
+exclude = [
+    "^mibs/",  # Exclude auto-generated MIB files
+]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
