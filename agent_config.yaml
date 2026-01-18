@@ -1,0 +1,9 @@
+# SNMP Agent Configuration
+# List the MIBs to load (without extension)
+# Example:
+# mibs:
+#   - MY-AGENT-MIB
+#   - ANOTHER-MIB
+
+mibs:
+  - MY-AGENT-MIB
