@@ -1,7 +1,9 @@
 {
   "exclude": [
     "mibs/",
-    "reference/"
+    "reference/",
+    ".venv",
+    "**/site-packages"
   ],
   "typeCheckingMode": "standard",
   "reportMissingTypeStubs": false,

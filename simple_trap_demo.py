@@ -7,6 +7,7 @@ Shows how to send traps with different data types.
 from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.entity.rfc3413 import ntforg
+from pysnmp.smi.rfc1902 import NotificationType, ObjectIdentity, ObjectType
 from pysnmp.proto.api import v2c
 import asyncio
 
@@ -30,10 +31,14 @@ def send_trap_demo():
     # Setup notification target
     config.add_target_parameters(snmpEngine, 'my-creds', 'my-area', 'noAuthNoPriv', 1)
     config.add_target_address(
-        snmpEngine, 'my-nms',
+        snmpEngine,
+        'my-nms',
         udp.DOMAIN_NAME, ('127.0.0.1', 1162),
         'my-creds',
-        tagList='all-my-managers'
+        timeout=1,
+        retryCount=5,
+        tagList=b'all-my-managers',  # Correct: bytes literal
+        sourceAddress=None,
     )
     
     # Setup notification
@@ -52,79 +57,109 @@ def send_trap_demo():
     
     # Send trap 1: String value
     print("Sending trap 1: String value...")
+    varBinds = [
+        ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
+        ((1, 3, 6, 1, 4, 1, 99999, 1, 0), v2c.OctetString('Alert: Test trap message'))
+    ]
+    object_types = tuple(
+        ObjectType(ObjectIdentity(*oid), value)
+        for oid, value in varBinds
+    )
     ntfOrg.send_varbinds(
         snmpEngine,
         'test-notification',
         None, '',  # contextEngineId, contextName
-        [
-            ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
-            ((1, 3, 6, 1, 4, 1, 99999, 1, 0), v2c.OctetString('Alert: Test trap message'))
-        ]
+        object_types
     )
     print("✓ Sent")
 
     # Send trap 2: Integer value
     print("\nSending trap 2: Integer value...")
+    varBinds = [
+        ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
+        ((1, 3, 6, 1, 4, 1, 99999, 2, 0), v2c.Integer(999))
+    ]
+    object_types = tuple(
+        ObjectType(ObjectIdentity(*oid), value)
+        for oid, value in varBinds
+    )
     ntfOrg.send_varbinds(
         snmpEngine,
         'test-notification',
         None, '',
-        [
-            ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
-            ((1, 3, 6, 1, 4, 1, 99999, 2, 0), v2c.Integer(999))
-        ]
+        object_types
     )
     print("✓ Sent")
 
     # Send trap 3: Counter32
     print("\nSending trap 3: Counter32...")
+    varBinds = [
+        ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
+        ((1, 3, 6, 1, 4, 1, 99999, 5, 0), v2c.Counter32(54321))
+    ]
+    object_types = tuple(
+        ObjectType(ObjectIdentity(*oid), value)
+        for oid, value in varBinds
+    )
     ntfOrg.send_varbinds(
         snmpEngine,
         'test-notification',
         None, '',
-        [
-            ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
-            ((1, 3, 6, 1, 4, 1, 99999, 5, 0), v2c.Counter32(54321))
-        ]
+        object_types
     )
     print("✓ Sent")
 
     # Send trap 4: Gauge32
     print("\nSending trap 4: Gauge32 (high value alert)...")
+    varBinds = [
+        ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
+        ((1, 3, 6, 1, 4, 1, 99999, 6, 0), v2c.Gauge32(95))
+    ]
+    object_types = tuple(
+        ObjectType(ObjectIdentity(*oid), value)
+        for oid, value in varBinds
+    )
     ntfOrg.send_varbinds(
         snmpEngine,
         'test-notification',
         None, '',
-        [
-            ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
-            ((1, 3, 6, 1, 4, 1, 99999, 6, 0), v2c.Gauge32(95))
-        ]
+        object_types
     )
     print("✓ Sent")
 
     # Send trap 5: IpAddress
     print("\nSending trap 5: IpAddress...")
+    varBinds = [
+        ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
+        ((1, 3, 6, 1, 4, 1, 99999, 8, 0), v2c.IpAddress('10.0.0.1'))
+    ]
+    object_types = tuple(
+        ObjectType(ObjectIdentity(*oid), value)
+        for oid, value in varBinds
+    )
     ntfOrg.send_varbinds(
         snmpEngine,
         'test-notification',
         None, '',
-        [
-            ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
-            ((1, 3, 6, 1, 4, 1, 99999, 8, 0), v2c.IpAddress('10.0.0.1'))
-        ]
+        object_types
     )
     print("✓ Sent")
 
     # Send trap 6: TimeTicks
     print("\nSending trap 6: TimeTicks...")
+    varBinds = [
+        ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
+        ((1, 3, 6, 1, 4, 1, 99999, 7, 0), v2c.TimeTicks(12345))
+    ]
+    object_types = tuple(
+        ObjectType(ObjectIdentity(*oid), value)
+        for oid, value in varBinds
+    )
     ntfOrg.send_varbinds(
         snmpEngine,
         'test-notification',
         None, '',
-        [
-            ((1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0), v2c.ObjectIdentifier((1, 3, 6, 1, 4, 1, 99999))),
-            ((1, 3, 6, 1, 4, 1, 99999, 7, 0), v2c.TimeTicks(12345))
-        ]
+        object_types
     )
     print("✓ Sent")
     

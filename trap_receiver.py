@@ -29,7 +29,7 @@ class TrapReceiver:
         self.port = port
         self.snmpEngine = engine.SnmpEngine()
         
-    def setup(self):
+    def setup(self) -> None:
         """Setup the trap receiver."""
         # Transport setup
         config.add_transport(
@@ -90,7 +90,7 @@ class TrapReceiver:
             self.snmpEngine.transport_dispatcher.close_dispatcher()
 
 
-def main():
+def main() -> None:
     """Main function."""
     print("=" * 70)
     print("SNMP Trap Receiver")

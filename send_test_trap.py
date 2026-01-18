@@ -10,7 +10,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
     SnmpEngine, CommunityData, UdpTransportTarget,
     ContextData, send_notification
 )
-from pysnmp.smi.rfc1902 import ObjectIdentity, ObjectType
+from pysnmp.smi.rfc1902 import NotificationType, ObjectIdentity, ObjectType
 from pysnmp.proto.api import v2c
 
 # Setup logging
@@ -34,14 +34,15 @@ async def send_trap(trap_dest, oid, value, trap_type='trap'):
         logger.info(f"  Value: {value}")
 
         # Send the notification with variable binding
+        notification = NotificationType(ObjectIdentity(oid_str)).addVarBinds((oid_str, value))
+
         result = await send_notification(
             SnmpEngine(),
             CommunityData('public'),
             await UdpTransportTarget.create(trap_dest),
             ContextData(),
             trap_type,
-            # Variable binding: OID and value
-            ObjectType(ObjectIdentity(oid_str), value)
+            notification
         )
 
         errorIndication = result[0]

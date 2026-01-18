@@ -19,6 +19,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
     SnmpEngine, CommunityData, UdpTransportTarget,
     ContextData, NotificationType, send_notification
 )
+from pysnmp.smi.rfc1902 import ObjectIdentity
 # Import SNMP data types
 Counter32 = v2c.Counter32
 Counter64 = v2c.Counter64
@@ -277,7 +278,7 @@ class SNMPAgent:
                 await UdpTransportTarget.create(trap_dest),
                 ContextData(),
                 trap_type,
-                NotificationType((1, 3, 6, 1, 6, 3, 1, 1, 5, 1)).add_var_binds((oid, value))
+                NotificationType(ObjectIdentity(1, 3, 6, 1, 6, 3, 1, 1, 5, 1)).add_var_binds((oid, value))
             )
 
             errorIndication = result[0]
