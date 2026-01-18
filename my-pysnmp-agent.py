@@ -13,8 +13,8 @@ from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.smi import builder
 from pysnmp.entity.rfc3413 import cmdrsp, context
-from pyasn1.type.univ import OctetString, Integer
 from pysnmp.proto.api import v2c
+from pyasn1.type.univ import OctetString, Integer, ObjectIdentifier
 from pysnmp.hlapi.v3arch.asyncio import (
     SnmpEngine, CommunityData, UdpTransportTarget,
     ContextData, NotificationType, send_notification
@@ -37,7 +37,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 class SNMPAgent:
     """SNMP Agent that serves enterprise MIB data."""
 
-    def __init__(self, host: str = '127.0.0.1', port: int = 10161) -> None:
+    def __init__(self, host: str = '127.0.0.1', port: int = 161) -> None:
+    # def __init__(self, host: str = '127.0.0.1', port: int = 10161) -> None:
         """Initialize the SNMP agent.
 
         Args:
@@ -97,11 +98,17 @@ class SNMPAgent:
         """Configure SNMPv2c community."""
         config.add_v1_system(self.snmpEngine, 'my-area', 'public')
 
-        # Allow full access to enterprise subtree
+        # Allow access to the standard SNMP system group subtree
+        config.add_vacm_user(
+            self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
+            (1, 3, 6, 1, 2, 1, 1)
+        )
+        # Also allow full access to enterprise subtree
         config.add_vacm_user(
             self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
             (1, 3, 6, 1, 4, 1, 99999)
         )
+
 
     def _setup_responders(self) -> None:
         """Setup SNMP command responders."""
@@ -138,20 +145,40 @@ class SNMPAgent:
             'Integer': Integer,
         }
 
-        # Register scalars
-        # List of MibScalarInstance (runtime only); use Any for type checking
+
+        # Add RFC SNMPv2-MIB system group scalars
+        rfc_scalars = [
+            # sysDescr (.1.3.6.1.2.1.1.1.0)
+            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 1), OctetString()),
+             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 1), (0,), OctetString('Simple Python SNMP Agent - Demo System'))),
+            # sysObjectID (.1.3.6.1.2.1.1.2.0)
+            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 2), ObjectIdentifier()),
+             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 2), (0,), ObjectIdentifier('1.3.6.1.4.1.99999'))),
+            # sysUpTime (.1.3.6.1.2.1.1.3.0)
+            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 3), Integer()),
+             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 3), (0,), Integer(int(time.time() * 100)))),
+            # sysContact (.1.3.6.1.2.1.1.4.0)
+            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 4), OctetString()),
+             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 4), (0,), OctetString('Admin <admin@example.com>'))),
+            # sysName (.1.3.6.1.2.1.1.5.0)
+            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 5), OctetString()),
+             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 5), (0,), OctetString('my-pysnmp-agent'))),
+            # sysLocation (.1.3.6.1.2.1.1.6.0)
+            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 6), OctetString()),
+             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 6), (0,), OctetString('Development Lab'))),
+        ]
+
+        # Register scalars from JSON as before
         from typing import Any
         scalar_symbols: list[Any] = []
         for name, info in mib_json.items():
             if info['type'] in type_map and isinstance(info['oid'], list) and len(info['oid']) == 8:
                 pysnmp_type = type_map[info['type']]
                 scalar_oid = tuple(info['oid'])
-                # Use initial value if present, else default
                 initial = info.get('initial')
                 if initial is not None:
                     value = pysnmp_type(initial)
                 else:
-                    # Provide sensible defaults
                     if pysnmp_type is OctetString:
                         value = OctetString('default')
                     elif pysnmp_type is Integer32 or pysnmp_type is Integer:
@@ -167,7 +194,12 @@ class SNMPAgent:
                 scalar_symbols.append(self.MibScalar(scalar_oid, pysnmp_type()))
                 scalar_symbols.append(self.MibScalarInstance(scalar_oid, (0,), value))
 
-        self.mibBuilder.export_symbols('__MY_MIB', *scalar_symbols)
+        # Combine RFC scalars and JSON scalars
+        all_scalars = [Any, ...]
+        for pair in rfc_scalars:
+            all_scalars.extend(pair)
+        all_scalars.extend(scalar_symbols)
+        self.mibBuilder.export_symbols('__MY_MIB', *all_scalars)
 
         # Register table structure
         table_info = {k: v for k, v in mib_json.items() if k.startswith('myTable')}
