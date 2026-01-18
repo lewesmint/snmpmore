@@ -19,18 +19,20 @@ class TestMibToJson(unittest.TestCase):
         """Clean up test fixtures."""
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
-        # Clean up any generated JSON files
-        for f in os.listdir('.'):
-            if f.endswith('_behavior.json'):
-                try:
-                    os.remove(f)
-                except:
-                    pass
+        # Clean up any generated JSON files in mock-behavior directory
+        if os.path.exists('mock-behavior'):
+            for f in os.listdir('mock-behavior'):
+                if f.endswith('_behavior.json') and f.startswith('TEST-'):
+                    try:
+                        os.remove(os.path.join('mock-behavior', f))
+                    except:
+                        pass
 
     def test_extract_mib_info_with_real_mib(self) -> None:
         """Test extract_mib_info with a real compiled MIB."""
+        compiled_mibs_location : str = 'compiled-mibs'
         # Use the existing MY-AGENT-MIB
-        mib_path = os.path.join('mibs', 'MY-AGENT-MIB.py')
+        mib_path = os.path.join(compiled_mibs_location, 'MY-AGENT-MIB.py')
         if not os.path.exists(mib_path):
             self.skipTest("MY-AGENT-MIB.py not found")
         
@@ -133,8 +135,8 @@ class TestMibToJson(unittest.TestCase):
         with patch('builtins.print') as mock_print:
             main()
 
-            # Verify JSON file was created
-            json_path = 'MY-AGENT-MIB_behavior.json'
+            # Verify JSON file was created in mock-behavior directory
+            json_path = 'mock-behavior/MY-AGENT-MIB_behavior.json'
             self.assertTrue(os.path.exists(json_path))
 
             # Verify JSON content
@@ -144,7 +146,7 @@ class TestMibToJson(unittest.TestCase):
 
             # Verify print was called
             mock_print.assert_called_once()
-            self.assertIn('MY-AGENT-MIB_behavior.json', mock_print.call_args[0][0])
+            self.assertIn('mock-behavior/MY-AGENT-MIB_behavior.json', mock_print.call_args[0][0])
 
     def test_main_as_script(self) -> None:
         """Test running main when file is executed as __main__."""

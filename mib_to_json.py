@@ -6,8 +6,8 @@ from pysnmp.smi import builder
 
 def extract_mib_info(mib_py_path: str, mib_name: str) -> Dict[str, Any]:
     mibBuilder = builder.MibBuilder()
-    mibBuilder.addMibSources(builder.DirMibSource(os.path.dirname(mib_py_path)))
-    mibBuilder.loadModules(mib_name)
+    mibBuilder.add_mib_sources(builder.DirMibSource(os.path.dirname(mib_py_path)))
+    mibBuilder.load_modules(mib_name)
     mib_symbols = mibBuilder.mibSymbols[mib_name]
     result: Dict[str, Any] = {}
     for symbol_name, symbol_obj in mib_symbols.items():
@@ -32,7 +32,11 @@ def main() -> None:
     mib_py_path = sys.argv[1]
     mib_name = sys.argv[2]
     info = extract_mib_info(mib_py_path, mib_name)
-    json_path = f'{mib_name}_behavior.json'
+
+    # Ensure mock-behavior directory exists
+    os.makedirs('mock-behavior', exist_ok=True)
+
+    json_path = f'mock-behavior/{mib_name}_behavior.json'
     with open(json_path, 'w') as f:
         json.dump(info, f, indent=2)
     print(f'Behavior JSON written to {json_path}')

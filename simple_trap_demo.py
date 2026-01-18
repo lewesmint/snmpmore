@@ -7,12 +7,10 @@ Shows how to send traps with different data types.
 from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.entity.rfc3413 import ntforg
-from pysnmp.smi.rfc1902 import NotificationType, ObjectIdentity, ObjectType
+from pysnmp.smi.rfc1902 import ObjectIdentity, ObjectType
 from pysnmp.proto.api import v2c
-import asyncio
 
-
-def send_trap_demo():
+def send_trap_demo() -> None:
     """Send a simple SNMP trap."""
     
     # Create SNMP engine

@@ -13,7 +13,7 @@ from typing import Any, cast
 # debug.setLogger(debug.Debug('all'))
 
 input_mib = 'MY-AGENT-MIB.txt'
-output_dir = 'mibs'
+output_dir = 'compiled-mibs'
 
 compiler = MibCompiler(
     parserFactory()(),

@@ -283,6 +283,139 @@ export SNMP_PERSISTENT_FILE=~/.snmp/MyEnterpriseAgent.conf
 ./my-agentx.py
 ```
 
+## PySNMP Agent (Alternative Implementation)
+
+This repository also includes `my-pysnmp-agent.py`, a pure-Python SNMP agent implementation using the `pysnmp` library. Unlike the AgentX subagent, this runs as a standalone SNMP agent.
+
+The pysnmp agent uses a **data-driven approach** where MIB object definitions are loaded from JSON behavior files rather than being hard-coded. This makes it easy to modify or extend the MIB without changing the agent code.
+
+### Important: MIB Class Imports in pysnmp
+
+When working with pysnmp, **you cannot import MIB classes directly** from `pysnmp.smi`. Instead, you must use the `mibBuilder.import_symbols()` method after initializing the MIB builder.
+
+#### ❌ WRONG - This will NOT work:
+```python
+from pysnmp.smi import builder, MibScalar, MibScalarInstance  # These imports will fail!
+```
+
+#### ✅ CORRECT - Use mibBuilder.import_symbols():
+```python
+from pysnmp.smi import builder
+
+# Initialize the MIB builder
+mibBuilder = snmpEngine.get_mib_builder()
+mibBuilder.add_mib_sources(builder.DirMibSource('./mibs'))
+
+# Import MIB classes from SNMPv2-SMI using import_symbols()
+(MibScalar,
+ MibScalarInstance,
+ MibTable,
+ MibTableRow,
+ MibTableColumn) = mibBuilder.import_symbols(
+    'SNMPv2-SMI',
+    'MibScalar',
+    'MibScalarInstance',
+    'MibTable',
+    'MibTableRow',
+    'MibTableColumn'
+)
+
+# Now you can use these classes
+myScalar = MibScalar((1, 3, 6, 1, 4, 1, 99999, 1), OctetString())
+myInstance = MibScalarInstance((1, 3, 6, 1, 4, 1, 99999, 1), (0,), OctetString('value'))
+```
+
+#### Why This Matters
+
+The MIB classes in pysnmp are **dynamically loaded** from the MIB modules at runtime. They are not static Python classes that can be imported directly. The `import_symbols()` method:
+
+1. Loads the specified MIB module (e.g., 'SNMPv2-SMI')
+2. Extracts the requested symbols from that module
+3. Returns them as Python objects you can use
+
+This pattern is used throughout the pysnmp codebase and is the **only correct way** to obtain these classes.
+
+#### In a Class Context
+
+If you're building an SNMP agent as a class (like in `my-pysnmp-agent.py`), store the imported symbols as instance attributes:
+
+```python
+class SNMPAgent:
+    def __init__(self):
+        self.snmpEngine = engine.SnmpEngine()
+        self.mibBuilder = self.snmpEngine.get_mib_builder()
+
+        # Import MIB classes and store as instance attributes
+        (self.MibScalar,
+         self.MibScalarInstance,
+         self.MibTable,
+         self.MibTableRow,
+         self.MibTableColumn) = self.mibBuilder.import_symbols(
+            'SNMPv2-SMI',
+            'MibScalar',
+            'MibScalarInstance',
+            'MibTable',
+            'MibTableRow',
+            'MibTableColumn'
+        )
+
+    def register_objects(self):
+        # Use the instance attributes
+        scalar = self.MibScalar((1, 3, 6, 1, 4, 1, 99999, 1), OctetString())
+        instance = self.MibScalarInstance((1, 3, 6, 1, 4, 1, 99999, 1), (0,), OctetString('value'))
+```
+
+### Mock Behavior Files
+
+The pysnmp agent uses **behavior definition files** (JSON) to configure MIB objects. These files are located in the `mock-behavior/` directory and are generated from compiled MIBs.
+
+#### What Are Behavior Files?
+
+Behavior files are JSON representations of MIB structure that define:
+- Object OIDs and types
+- Initial values
+- Access permissions
+- Optional dynamic behavior functions
+
+They are the output of the `mib_to_json.py` script, which extracts metadata from compiled MIB files.
+
+#### Generating Behavior Files
+
+```bash
+# Compile your MIB first (if not already done)
+python compile_mib.py data/mibs/MY-AGENT-MIB.mib
+
+# Generate the behavior JSON
+python mib_to_json.py compiled-mibs/MY-AGENT-MIB.py MY-AGENT-MIB
+# Output: mock-behavior/MY-AGENT-MIB_behavior.json
+```
+
+#### Directory Structure
+
+```
+snmpmore/
+├── data/mibs/              # Original MIB source files (.mib, .txt)
+├── compiled-mibs/          # Compiled Python MIB modules (.py)
+└── mock-behavior/          # Behavior definitions (JSON)
+    ├── README.md           # Detailed documentation
+    └── MY-AGENT-MIB_behavior.json
+```
+
+See `mock-behavior/README.md` for detailed information about the behavior file format and customization options.
+
+### Running the PySNMP Agent
+
+```bash
+# Install pysnmp
+pip install pysnmp
+
+# Run the agent (listens on port 10161 by default)
+./my-pysnmp-agent.py
+
+# Test it
+snmpwalk -v2c -c public localhost:10161 .1.3.6.1.4.1.99999
+```
+
 ## Customization
 
 ### Change the Enterprise Number

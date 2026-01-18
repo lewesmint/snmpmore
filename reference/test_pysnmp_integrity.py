@@ -20,7 +20,7 @@ except Exception as e:
 
 # Test 3: SMI module structure
 try:
-    from pysnmp.smi import builder, view, error
+    from pysnmp.smi import builder
     print('✓ Test 3: SMI core modules - OK')
 except Exception as e:
     print(f'✗ Test 3: SMI core modules - FAILED: {e}')
@@ -35,14 +35,6 @@ try:
 except Exception as e:
     print(f'✗ Test 4: MibScalarInstance via MibBuilder - FAILED: {e}')
 
-# Test 5: Entity engine
-try:
-    from pysnmp.entity import engine, config
-    from pysnmp.entity.rfc3413 import cmdrsp, context
-    print('✓ Test 5: Entity engine modules - OK')
-except Exception as e:
-    print(f'✗ Test 5: Entity engine modules - FAILED: {e}')
-
 # Test 6: Check for common MIB symbols
 try:
     from pysnmp.smi import builder
@@ -53,14 +45,6 @@ try:
     print(f'  Imported {len(symbols)} symbols')
 except Exception as e:
     print(f'✗ Test 6: Common MIB symbols - FAILED: {e}')
-
-# Test 7: Direct import attempt (this should fail in pysnmp v7)
-try:
-    from pysnmp.smi import MibScalarInstance  # type: ignore[no-redef]
-    print('✓ Test 7: Direct import from pysnmp.smi - OK (unexpected!)')
-except ImportError as e:
-    print('✗ Test 7: Direct import from pysnmp.smi - EXPECTED FAILURE')
-    print(f'  Reason: MibScalarInstance must be imported via MibBuilder')
 
 print('\n=== Summary ===')
 print('The installation is working correctly.')

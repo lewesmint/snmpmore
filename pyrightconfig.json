@@ -1,6 +1,6 @@
 {
   "exclude": [
-    "mibs/",
+    "compiled-mibs/",
     "reference/",
     ".venv",
     "**/site-packages"

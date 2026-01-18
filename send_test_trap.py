@@ -8,17 +8,24 @@ import asyncio
 import logging
 from pysnmp.hlapi.v3arch.asyncio import (
     SnmpEngine, CommunityData, UdpTransportTarget,
-    ContextData, send_notification
+    ContextData, NotificationType,
+    send_notification
 )
-from pysnmp.smi.rfc1902 import NotificationType, ObjectIdentity, ObjectType
+from pysnmp.smi.rfc1902 import ObjectIdentity
 from pysnmp.proto.api import v2c
+from typing import Any
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-async def send_trap(trap_dest, oid, value, trap_type='trap'):
+async def send_trap(
+    trap_dest: tuple[str, int],
+    oid: tuple[int, ...],
+    value: Any,
+    trap_type: str = 'trap'
+) -> None:
     """Send an SNMP trap or inform.
 
     Args:
@@ -34,7 +41,7 @@ async def send_trap(trap_dest, oid, value, trap_type='trap'):
         logger.info(f"  Value: {value}")
 
         # Send the notification with variable binding
-        notification = NotificationType(ObjectIdentity(oid_str)).addVarBinds((oid_str, value))
+        notification = NotificationType(ObjectIdentity(oid_str)).add_var_binds((oid_str, value))
 
         result = await send_notification(
             SnmpEngine(),
@@ -57,7 +64,7 @@ async def send_trap(trap_dest, oid, value, trap_type='trap'):
         traceback.print_exc()
 
 
-async def main():
+async def main() -> None:
     """Send various test traps."""
     # Trap destination (using port 1162 to avoid needing root)
     # Standard SNMP trap port is 162, but requires root privileges

@@ -6,9 +6,11 @@ Listens for SNMP traps and displays them.
 
 import asyncio
 import logging
+from typing import Any
 from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.entity.rfc3413 import ntfrcv
+from pysnmp.proto.rfc1902 import OctetString
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,9 +20,9 @@ logger = logging.getLogger(__name__)
 class TrapReceiver:
     """Simple SNMP trap receiver."""
     
-    def __init__(self, host='0.0.0.0', port=162):
+    def __init__(self, host: str = '0.0.0.0', port: int = 162) -> None:
         """Initialize the trap receiver.
-        
+
         Args:
             host: IP address to bind to (0.0.0.0 for all interfaces)
             port: Port to listen on (default 162, standard SNMP trap port)
@@ -47,10 +49,17 @@ class TrapReceiver:
         logger.info(f"Trap receiver listening on {self.host}:{self.port}")
         logger.info("Waiting for traps... (Press Ctrl+C to stop)")
         
-    def trap_callback(self, snmpEngine, stateReference, contextEngineId, contextName,
-                      varBinds, cbCtx):
+    def trap_callback(
+        self,
+        snmpEngine: 'engine.SnmpEngine',
+        stateReference: Any,
+        contextEngineId: OctetString,
+        contextName: OctetString,
+        varBinds: list[tuple[Any, Any]],
+        cbCtx: Any
+    ) -> None:
         """Callback function called when a trap is received.
-        
+
         Args:
             snmpEngine: SNMP engine instance
             stateReference: Unique reference to this notification
@@ -66,17 +75,17 @@ class TrapReceiver:
         print(f"Context Name: {contextName.prettyPrint()}")
         print("\nVariable Bindings:")
         print("-" * 70)
-        
+
         for idx, varBind in enumerate(varBinds, 1):
             oid, value = varBind
             print(f"  {idx}. OID: {oid.prettyPrint()}")
             print(f"     Value: {value.prettyPrint()}")
             print(f"     Type: {type(value).__name__}")
             print()
-        
+
         print("=" * 70)
         
-    def run(self):
+    def run(self) -> None:
         """Run the trap receiver (blocking)."""
         self.setup()
         
