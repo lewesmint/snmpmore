@@ -68,8 +68,8 @@ def udp_receiver(recv_port: int, stop_event: threading.Event) -> None:
     sock.settimeout(0.5)
     while not stop_event.is_set():
         try:
-            data, addr = sock.recvfrom(4096)
-            print(f"[RECV] {data.decode()} <- {addr}")
+            data, _addr = sock.recvfrom(4096)
+            print(f"[RECV] {data.decode()} (received on port {recv_port})")
         except socket.timeout:
             continue
     sock.close()
