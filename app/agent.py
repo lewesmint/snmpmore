@@ -53,9 +53,40 @@ class SNMPAgent:
         return str(value)
 
     def set_scalar_value(self, oid: Tuple[int, ...], value: str) -> None:
+        """Set a scalar value and persist it to the behavior JSON file."""
         # Find the MibScalarInstance for the given OID and set its value (as OctetString)
         mibInstrum = context.SnmpContext(self.snmpEngine).get_mib_instrum()
         mibInstrum.write_variables((oid, OctetString(value)))
+
+        # Persist the change to the behavior JSON file
+        self._persist_scalar_value(oid, value)
+
+    def _persist_scalar_value(self, oid: Tuple[int, ...], value: str) -> None:
+        """Persist a scalar value change to the behavior JSON file.
+
+        Updates the 'current' field in the behavior JSON, leaving 'initial' unchanged
+        so values can be reset later.
+        """
+        # Strip the .0 instance identifier from scalar OIDs
+        # e.g., (1,3,6,1,2,1,1,1,0) -> (1,3,6,1,2,1,1,1)
+        base_oid = oid[:-1] if oid and oid[-1] == 0 else oid
+
+        # Find which MIB this OID belongs to
+        for mib_name, mib_json in self.mib_jsons.items():
+            for symbol_name, info in mib_json.items():
+                if isinstance(info['oid'], list) and tuple(info['oid']) == base_oid:
+                    # Found the matching symbol, update the current value
+                    info['current'] = value
+
+                    # Write back to the JSON file
+                    json_path = os.path.join('mock-behavior', f'{mib_name}_behavior.json')
+                    with open(json_path, 'w') as f:
+                        json.dump(mib_json, f, indent=2)
+
+                    print(f"Persisted {symbol_name} = '{value}' to {json_path}")
+                    return
+
+        print(f"Warning: Could not find OID {oid} in any loaded MIB to persist")
 
     def __init__(self, host: str = '127.0.0.1', port: int = 161, config_path: str = 'agent_config.yaml') -> None:
         """Initialize the SNMP agent with config file support.
@@ -120,19 +151,45 @@ class SNMPAgent:
         mib_compiler = MibCompiler()
         behavior_gen = BehaviorGenerator()
         for mib in mibs:
-            mib_txt = None
-            # Try to find the .txt in data/mibs/Fake or data/mibs/Palo Alto Networks
-            for d in ['data/mibs/Fake', 'data/mibs/Palo Alto Networks']:
-                candidate = os.path.join(d, f'{mib}.txt')
-                if os.path.exists(candidate):
-                    mib_txt = candidate
-                    break
-            if not mib_txt:
-                raise FileNotFoundError(f"MIB source for {mib} not found")
-            compiled_py = mib_compiler.compile(mib_txt)
-            json_path = behavior_gen.generate(compiled_py, mib)
-            with open(json_path, 'r') as jf:
-                self.mib_jsons[mib] = json.load(jf)
+            # Check if behavior JSON already exists (for behavior-only MIBs like SNMPv2-MIB_system)
+            json_path = os.path.join('mock-behavior', f'{mib}_behavior.json')
+            if os.path.exists(json_path):
+                # Load existing behavior JSON
+                with open(json_path, 'r') as jf:
+                    self.mib_jsons[mib] = json.load(jf)
+                print(f"{mib}: loaded from existing behavior JSON")
+            else:
+                # Need to compile MIB from .txt file
+                mib_txt = None
+
+                # Search in multiple locations
+                search_paths = ['data/mibs']
+                system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
+                if os.path.exists(system_mib_dir):
+                    search_paths.append(system_mib_dir)
+
+                # Search recursively in all search paths
+                for search_path in search_paths:
+                    for root, _dirs, _files in os.walk(search_path):
+                        # Try with .txt extension first
+                        candidate = os.path.join(root, f'{mib}.txt')
+                        if os.path.exists(candidate):
+                            mib_txt = candidate
+                            break
+                        # Try without extension (system MIBs often have no extension)
+                        candidate = os.path.join(root, mib)
+                        if os.path.exists(candidate):
+                            mib_txt = candidate
+                            break
+                    if mib_txt:
+                        break
+
+                if not mib_txt:
+                    raise FileNotFoundError(f"MIB source for {mib} not found in data/mibs or system MIB directory")
+                compiled_py = mib_compiler.compile(mib_txt)
+                json_path = behavior_gen.generate(compiled_py, mib)
+                with open(json_path, 'r') as jf:
+                    self.mib_jsons[mib] = json.load(jf)
 
     def _setup_transport(self) -> None:
         """Configure UDP transport."""
@@ -146,10 +203,15 @@ class SNMPAgent:
         """Configure SNMPv2c community."""
         config.add_v1_system(self.snmpEngine, 'my-area', 'public')
 
-        # Allow access to the standard SNMP system group subtree
+        # Allow access to the standard SNMP system group subtree (1.3.6.1.2.1.1)
         config.add_vacm_user(
             self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
             (1, 3, 6, 1, 2, 1, 1)
+        )
+        # Allow access to entire MIB-2 tree (1.3.6.1.2.1) for standard MIBs
+        config.add_vacm_user(
+            self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
+            (1, 3, 6, 1, 2, 1)
         )
         # Also allow full access to enterprise subtree
         config.add_vacm_user(
@@ -185,55 +247,57 @@ class SNMPAgent:
             'Unsigned32': Unsigned32,
             'OctetString': OctetString,
             'Integer': Integer,
+            'ObjectIdentifier': ObjectIdentifier,
         }
 
-        # Add RFC SNMPv2-MIB system group scalars (always present)
-        rfc_scalars = [
-            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 1), OctetString()),
-             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 1), (0,), OctetString('Simple Python SNMP Agent - Demo System'))),
-            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 2), ObjectIdentifier()),
-             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 2), (0,), ObjectIdentifier('1.3.6.1.4.1.99999'))),
-            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 3), Integer()),
-             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 3), (0,), Integer(int(time.time() * 100)))),
-            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 4), OctetString()),
-             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 4), (0,), OctetString('Admin <admin@example.com>'))),
-            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 5), OctetString()),
-             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 5), (0,), OctetString('my-pysnmp-agent'))),
-            (self.MibScalar((1, 3, 6, 1, 2, 1, 1, 6), OctetString()),
-             self.MibScalarInstance((1, 3, 6, 1, 2, 1, 1, 6), (0,), OctetString('Development Lab'))),
-        ]
-        for pair in rfc_scalars:
-            self.mibBuilder.export_symbols('__MY_MIB', *pair)
-
-        # Register all MIBs from config
+        # Register all MIBs from config (including SNMPv2-MIB system group)
         for mib, mib_json in self.mib_jsons.items():
             # Scalars
             scalar_symbols: list[Any] = []
+            registered_count = 0
             for name, info in mib_json.items():
                 oid_value = cast(List[int], info['oid']) if isinstance(info['oid'], list) else []
-                if info['type'] in type_map and isinstance(info['oid'], list) and len(oid_value) == 8:
+                # Register scalar objects (skip tables and non-accessible objects)
+                if (info['type'] in type_map and
+                    isinstance(info['oid'], list) and
+                    len(oid_value) > 0 and
+                    info.get('access') not in ['not-accessible', 'accessible-for-notify']):
                     pysnmp_type = type_map[info['type']]
                     scalar_oid = tuple(oid_value)
-                    initial = info.get('initial')
-                    if initial is not None:
-                        value = pysnmp_type(initial)
+
+                    # Check if this is a dynamic function
+                    dynamic_func = info.get('dynamic_function')
+                    if dynamic_func == 'uptime':
+                        # Special handling for sysUpTime - calculate from start_time
+                        value = TimeTicks(int((time.time() - self.start_time) * 100))
                     else:
-                        if pysnmp_type is OctetString:
-                            value = OctetString('default')
-                        elif pysnmp_type is Integer32 or pysnmp_type is Integer:
-                            value = pysnmp_type(0)
-                        elif pysnmp_type in (Counter32, Counter64, Gauge32, Unsigned32):
-                            value = pysnmp_type(0)
-                        elif pysnmp_type is IpAddress:
-                            value = IpAddress('127.0.0.1')
-                        elif pysnmp_type is TimeTicks:
-                            value = TimeTicks(0)
+                        # Use 'current' if it exists, otherwise fall back to 'initial'
+                        value_str = info.get('current') if 'current' in info else info.get('initial')
+                        if value_str is not None:
+                            value = pysnmp_type(value_str)
                         else:
-                            value = pysnmp_type()
+                            # No initial/current value, use type-appropriate defaults
+                            if pysnmp_type is OctetString:
+                                value = OctetString('default')
+                            elif pysnmp_type is Integer32 or pysnmp_type is Integer:
+                                value = pysnmp_type(0)
+                            elif pysnmp_type in (Counter32, Counter64, Gauge32, Unsigned32):
+                                value = pysnmp_type(0)
+                            elif pysnmp_type is IpAddress:
+                                value = IpAddress('127.0.0.1')
+                            elif pysnmp_type is TimeTicks:
+                                value = TimeTicks(0)
+                            else:
+                                value = pysnmp_type()
                     scalar_symbols.append(self.MibScalar(scalar_oid, pysnmp_type()))
                     scalar_symbols.append(self.MibScalarInstance(scalar_oid, (0,), value))
+                    registered_count += 1
             if scalar_symbols:
-                self.mibBuilder.export_symbols(f'__{mib}', *scalar_symbols)
+                # Use actual MIB name for standard MIBs (SNMPv2-MIB, etc.)
+                # Use __MIB for custom MIBs to avoid conflicts
+                export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
+                self.mibBuilder.export_symbols(export_name, *scalar_symbols)
+                print(f"Loaded {mib}: {registered_count} objects")
 
             # Table support (if present)
             table_info = {k: v for k, v in mib_json.items() if k.startswith('myTable')}
@@ -279,20 +343,16 @@ class SNMPAgent:
         print(f'Try: snmpwalk -v2c -c public {self.host}:{self.port} .1.3.6.1.4.1.99999')
         print('Press Ctrl+C to stop')
 
+        # Register an imaginary never-ending job to keep I/O dispatcher running forever
         self.snmpEngine.transport_dispatcher.job_started(1)
+
+        # Run I/O dispatcher which would receive queries and send responses
         try:
-            # For pysnmp v7 with asyncio, we need to create/get event loop for this thread
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                # No event loop in this thread, create a new one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            loop.run_forever()
+            self.snmpEngine.open_dispatcher()
         except KeyboardInterrupt:
             print('\nShutting down agent')
         finally:
-            self.snmpEngine.transport_dispatcher.close_dispatcher()
+            self.snmpEngine.close_dispatcher()
 
     def stop(self) -> None:
         """Stop the SNMP agent."""

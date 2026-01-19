@@ -1,0 +1,344 @@
+{
+  "udpInDatagrams": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      1
+    ],
+    "type": "Counter32",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpNoPorts": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      2
+    ],
+    "type": "Counter32",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpInErrors": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      3
+    ],
+    "type": "Counter32",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpOutDatagrams": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      4
+    ],
+    "type": "Counter32",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpTable": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      5
+    ],
+    "type": "NoneType",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEntry": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      5,
+      1
+    ],
+    "type": "NoneType",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpLocalAddress": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      5,
+      1,
+      1
+    ],
+    "type": "IpAddress",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpLocalPort": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      5,
+      1,
+      2
+    ],
+    "type": "Integer32",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointTable": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7
+    ],
+    "type": "NoneType",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointEntry": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1
+    ],
+    "type": "NoneType",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointLocalAddressType": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1,
+      1
+    ],
+    "type": "InetAddressType",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointLocalAddress": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1,
+      2
+    ],
+    "type": "InetAddress",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointLocalPort": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1,
+      3
+    ],
+    "type": "InetPortNumber",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointRemoteAddressType": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1,
+      4
+    ],
+    "type": "InetAddressType",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointRemoteAddress": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1,
+      5
+    ],
+    "type": "InetAddress",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointRemotePort": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1,
+      6
+    ],
+    "type": "InetPortNumber",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointInstance": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1,
+      7
+    ],
+    "type": "Unsigned32",
+    "access": "not-accessible",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpEndpointProcess": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      7,
+      1,
+      8
+    ],
+    "type": "Unsigned32",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpHCInDatagrams": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      8
+    ],
+    "type": "Counter64",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  },
+  "udpHCOutDatagrams": {
+    "oid": [
+      1,
+      3,
+      6,
+      1,
+      2,
+      1,
+      7,
+      9
+    ],
+    "type": "Counter64",
+    "access": "read-only",
+    "initial": null,
+    "dynamic_function": null
+  }
+}
