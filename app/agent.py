@@ -158,6 +158,27 @@ class SNMPAgent:
                     pass
         raise FileNotFoundError(f"Compiled MIB .py for {mib_name} not found in {compiled_dir}")
 
+    def _find_mib_source_by_name(self, mib_name: str, search_paths: list[str]) -> str:
+        """Scan all files in search_paths, parse for internal MIB name, and match to mib_name."""
+        import re
+        for search_path in search_paths:
+            for root, _dirs, files in os.walk(search_path):
+                for fname in files:
+                    # Only consider likely MIB files
+                    if not fname.lower().endswith(('.txt', '.mib', '')):
+                        continue
+                    fpath = os.path.join(root, fname)
+                    try:
+                        with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                            for line in f:
+                                # Look for 'UDP-MIB DEFINITIONS ::= BEGIN'
+                                m = re.match(r'\s*([A-Za-z0-9\-_.]+)\s+DEFINITIONS\s+::=\s+BEGIN', line)
+                                if m and m.group(1) == mib_name:
+                                    return fpath
+                    except Exception:
+                        continue
+        raise FileNotFoundError(f"MIB source for {mib_name} not found in search paths {search_paths}")
+
     def _load_config_and_prepare_mibs(self, config_path: str) -> None:
         """Load config YAML, ensure compiled MIBs and JSONs exist, generate if missing, using runtime classes."""
         if not os.path.exists(config_path):
@@ -178,26 +199,12 @@ class SNMPAgent:
                 try:
                     compiled_py = self._find_compiled_py_by_mib_name(mib)
                 except FileNotFoundError:
-                    # If not found, compile from .txt .mib
-                    mib_txt = None
+                    # If not found, compile from any file with matching internal MIB name
                     search_paths = ['data/mibs']
                     system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
                     if os.path.exists(system_mib_dir):
                         search_paths.append(system_mib_dir)
-                    for search_path in search_paths:
-                        for root, _dirs, _files in os.walk(search_path):
-                            candidate = os.path.join(root, f'{mib}.txt')
-                            if os.path.exists(candidate):
-                                mib_txt = candidate
-                                break
-                            candidate = os.path.join(root, mib)
-                            if os.path.exists(candidate):
-                                mib_txt = candidate
-                                break
-                        if mib_txt:
-                            break
-                    if not mib_txt:
-                        raise FileNotFoundError(f"MIB source for {mib} not found in data/mibs or system MIB directory")
+                    mib_txt = self._find_mib_source_by_name(mib, search_paths)
                     compiled_py = mib_compiler.compile(mib_txt)
                 json_path = behaviour_gen.generate(compiled_py, mib)
                 with open(json_path, 'r') as jf:

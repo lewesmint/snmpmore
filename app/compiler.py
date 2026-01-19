@@ -47,7 +47,14 @@ class MibCompiler:
         # Add sources: the directory containing the MIB file and standard locations
         compiler.add_sources(FileReader(mib_dir))
         compiler.add_sources(FileReader('.'))
-        compiler.add_sources(FileReader('data/mibs'))
+
+        # Add data/mibs and all its subdirectories recursively
+        mib_data_dir = 'data/mibs'
+        if os.path.exists(mib_data_dir):
+            compiler.add_sources(FileReader(mib_data_dir))
+            for root, dirs, files in os.walk(mib_data_dir):
+                if root != mib_data_dir:  # Don't add the root twice
+                    compiler.add_sources(FileReader(root))
 
         # Add system MIB directory (Net-SNMP default location on Windows)
         system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
