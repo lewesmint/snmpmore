@@ -41,3 +41,6 @@ env/
 .DS_Store
 Thumbs.db
 
+# Compiled MIBs and behavior
+compiled-mibs/
+mock-behavior/

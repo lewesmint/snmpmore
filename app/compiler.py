@@ -72,16 +72,17 @@ class MibCompiler:
 
         # Check results
         for mib, status in results.items():
+            mib_name_str: str = str(cast(Any, mib))
             status_str = str(cast(Any, status))
-            print(f'{mib}: {status_str}')
+            print(f'{mib_name_str}: {status_str}')
 
             # "compiled" and "untouched" are both success states
             # "untouched" means it was already compiled previously
             if status_str not in ('compiled', 'untouched'):
-                failed_mibs.append((mib, status_str))
+                failed_mibs.append((mib_name_str, status_str))
                 # Check if it's a missing dependency error
                 if 'missing' in status_str.lower():
-                    missing_deps.append(mib)
+                    missing_deps.append(mib_name_str)
 
         # If there are missing dependencies, provide helpful error message
         if missing_deps:

@@ -52,6 +52,7 @@ class BehaviorGenerator:
 
         result: Dict[str, Any] = {}
         for symbol_name, symbol_obj in mib_symbols.items():
+            symbol_name_str: str = str(cast(Any, symbol_name))
             # Only process scalars and columns
             if hasattr(cast(Any, symbol_obj), 'getName') and hasattr(cast(Any, symbol_obj), 'getSyntax'):
                 oid = cast(Any, symbol_obj).getName()
@@ -59,10 +60,10 @@ class BehaviorGenerator:
                 access = getattr(cast(Any, symbol_obj), 'getMaxAccess', lambda: 'unknown')()
 
                 # Provide sensible default initial values based on type
-                initial_value = self._get_default_value(syntax, symbol_name)
-                dynamic_func = self._get_dynamic_function(symbol_name)
+                initial_value = self._get_default_value(syntax, symbol_name_str)
+                dynamic_func = self._get_dynamic_function(symbol_name_str)
 
-                result[symbol_name] = {
+                result[symbol_name_str] = {
                     'oid': oid,
                     'type': syntax,
                     'access': access,

@@ -13,8 +13,7 @@
     "type": "DisplayString",
     "access": "read-only",
     "initial": "Simple Python SNMP Agent - Demo System",
-    "dynamic_function": null,
-    "current": "aaaa"
+    "dynamic_function": null
   },
   "sysObjectID": {
     "oid": [
