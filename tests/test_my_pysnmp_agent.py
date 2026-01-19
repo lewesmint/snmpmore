@@ -7,20 +7,15 @@ without requiring actual SNMP network communication.
 """
 
 import unittest
-import importlib.util
+import os
 import sys
 from unittest.mock import patch
 from pyasn1.type.univ import Integer
 
-# Import my-pysnmp-agent.py (with hyphens)
-spec = importlib.util.spec_from_file_location("my_pysnmp_agent", "my-pysnmp-agent.py")
-if spec and spec.loader:
-    my_pysnmp_agent = importlib.util.module_from_spec(spec)
-    sys.modules["my_pysnmp_agent"] = my_pysnmp_agent
-    spec.loader.exec_module(my_pysnmp_agent)
-    SNMPAgent = my_pysnmp_agent.SNMPAgent
-else:
-    raise ImportError("Could not load my-pysnmp-agent.py")
+# Add parent directory to path to import from app
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.agent import SNMPAgent, main
+from app import agent as agent_module
 
 
 class TestSNMPAgent(unittest.TestCase):
@@ -76,9 +71,9 @@ class TestSNMPAgent(unittest.TestCase):
 
     def test_counter_increments(self) -> None:
         """Test that _get_counter increments the counter."""
-        val1 = self.agent._get_counter()
-        val2 = self.agent._get_counter()
-        val3 = self.agent._get_counter()
+        val1 = self.agent._get_counter()  # pyright: ignore[reportPrivateUsage]
+        val2 = self.agent._get_counter()  # pyright: ignore[reportPrivateUsage]
+        val3 = self.agent._get_counter()  # pyright: ignore[reportPrivateUsage]
 
         self.assertIsInstance(val1, Integer)
         self.assertIsInstance(val2, Integer)
@@ -182,7 +177,8 @@ class TestSNMPAgent(unittest.TestCase):
     def test_all_sensor_values_positive(self) -> None:
         """Test that all sensor values are positive integers."""
         for row in self.agent.table_rows:
-            self.assertGreater(row[2], 0)
+            value: int = row[2]  # type: ignore[assignment]
+            self.assertGreater(value, 0, "Sensor value should be positive")
 
     def test_all_sensor_indices_sequential(self) -> None:
         """Test that sensor indices are sequential starting from 1."""
@@ -210,9 +206,9 @@ class TestSNMPAgent(unittest.TestCase):
         self.assertEqual(agent2.counter, 0)
 
         # Counters should be independent
-        agent1._get_counter()
-        agent1._get_counter()
-        agent2._get_counter()
+        agent1._get_counter()  # pyright: ignore[reportPrivateUsage]
+        agent1._get_counter()  # pyright: ignore[reportPrivateUsage]
+        agent2._get_counter()  # pyright: ignore[reportPrivateUsage]
 
         self.assertEqual(agent1.counter, 2)
         self.assertEqual(agent2.counter, 1)
@@ -238,8 +234,8 @@ class TestSNMPAgent(unittest.TestCase):
 
     def test_main_function(self) -> None:
         """Test the main function creates and runs an agent."""
-        with patch.object(my_pysnmp_agent.SNMPAgent, 'run') as mock_run:
-            my_pysnmp_agent.main()
+        with patch.object(agent_module.SNMPAgent, 'run') as mock_run:
+            main()
             mock_run.assert_called_once()
 
 

@@ -12,8 +12,8 @@ import os
 import yaml
 import json
 from typing import Any, Tuple, List, cast
-from mib_compiler import MibCompiler
-from behavior_generator import BehaviorGenerator
+from app.compiler import MibCompiler
+from app.generator import BehaviorGenerator
 from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.smi import builder

@@ -161,8 +161,8 @@ class TestMibToJson(unittest.TestCase):
         with patch('sys.argv', ['mib_to_json.py', 'mibs/MY-AGENT-MIB.py', 'MY-AGENT-MIB']):
             with patch('builtins.print'):
                 # Import and check __name__ handling
-                import mib_to_json
-                # The module's __name__ will be 'mib_to_json', not '__main__'
+                from tools import mib_to_json
+                # The module's __name__ will be 'tools.mib_to_json', not '__main__'
                 # so the block won't execute, but we've tested main() above
                 self.assertTrue(hasattr(mib_to_json, 'main'))
 
