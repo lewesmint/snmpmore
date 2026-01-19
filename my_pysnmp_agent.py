@@ -9,10 +9,11 @@ import asyncio
 import time
 import logging
 import os
-import subprocess
 import yaml
 import json
-from typing import Any, Tuple, List
+from typing import Any, Tuple, List, cast
+from mib_compiler import MibCompiler
+from behavior_generator import BehaviorGenerator
 from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.smi import builder
@@ -47,7 +48,9 @@ class SNMPAgent:
         mibInstrum = context.SnmpContext(self.snmpEngine).get_mib_instrum()
         var_binds = mibInstrum.read_variables((oid, None))
         # Return the value as string
-        return str(var_binds[0][1])
+        # var_binds is a sequence of (name, value) tuples
+        value = cast(Any, var_binds[0][1])
+        return str(value)
 
     def set_scalar_value(self, oid: Tuple[int, ...], value: str) -> None:
         # Find the MibScalarInstance for the given OID and set its value (as OctetString)
@@ -99,7 +102,7 @@ class SNMPAgent:
         ]
 
         # Load config and ensure MIBs/JSONs exist
-        self.mib_jsons = {}
+        self.mib_jsons: dict[str, Any] = {}
         self._load_config_and_prepare_mibs(config_path)
 
         self._setup_transport()
@@ -108,15 +111,15 @@ class SNMPAgent:
         self._register_mib_objects()
 
     def _load_config_and_prepare_mibs(self, config_path: str) -> None:
-        """Load config YAML, ensure compiled MIBs and JSONs exist, generate if missing."""
+        """Load config YAML, ensure compiled MIBs and JSONs exist, generate if missing, using runtime classes."""
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Config file {config_path} not found")
         with open(config_path, 'r') as f:
             config_data = yaml.safe_load(f)
         mibs: List[str] = config_data.get('mibs', [])
+        mib_compiler = MibCompiler()
+        behavior_gen = BehaviorGenerator()
         for mib in mibs:
-            compiled_py = os.path.join('compiled-mibs', f'{mib}.py')
-            json_path = os.path.join('mock-behavior', f'{mib}_behavior.json')
             mib_txt = None
             # Try to find the .txt in data/mibs/Fake or data/mibs/Palo Alto Networks
             for d in ['data/mibs/Fake', 'data/mibs/Palo Alto Networks']:
@@ -124,18 +127,10 @@ class SNMPAgent:
                 if os.path.exists(candidate):
                     mib_txt = candidate
                     break
-            # Compile MIB if needed
-            if not os.path.exists(compiled_py):
-                if mib_txt:
-                    print(f'Compiling {mib_txt}...')
-                    subprocess.run(['python', 'compile_mib.py', mib_txt], check=True)
-                else:
-                    raise FileNotFoundError(f"MIB source for {mib} not found")
-            # Generate JSON if needed
-            if not os.path.exists(json_path):
-                print(f'Generating behavior JSON for {mib}...')
-                subprocess.run(['python', 'mib_to_json.py', compiled_py, mib], check=True)
-            # Load JSON
+            if not mib_txt:
+                raise FileNotFoundError(f"MIB source for {mib} not found")
+            compiled_py = mib_compiler.compile(mib_txt)
+            json_path = behavior_gen.generate(compiled_py, mib)
             with open(json_path, 'r') as jf:
                 self.mib_jsons[mib] = json.load(jf)
 
@@ -213,11 +208,12 @@ class SNMPAgent:
         # Register all MIBs from config
         for mib, mib_json in self.mib_jsons.items():
             # Scalars
-            scalar_symbols = []
+            scalar_symbols: list[Any] = []
             for name, info in mib_json.items():
-                if info['type'] in type_map and isinstance(info['oid'], list) and len(info['oid']) == 8:
+                oid_value = cast(List[int], info['oid']) if isinstance(info['oid'], list) else []
+                if info['type'] in type_map and isinstance(info['oid'], list) and len(oid_value) == 8:
                     pysnmp_type = type_map[info['type']]
-                    scalar_oid = tuple(info['oid'])
+                    scalar_oid = tuple(oid_value)
                     initial = info.get('initial')
                     if initial is not None:
                         value = pysnmp_type(initial)

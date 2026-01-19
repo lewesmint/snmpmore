@@ -54,7 +54,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-import netsnmpagent
+import netsnmpagent  # type: ignore[import-untyped]
 
 
 ENTERPRISE_OID = ".1.3.6.1.4.1.99999"
@@ -74,7 +74,7 @@ def _default_persistent_file(agent_name: str) -> str:
     return str(snmp_dir / f"{agent_name}.conf")
 
 
-def _make_agent() -> netsnmpagent.netsnmpAgent:
+def _make_agent() -> Any:
     """
     Create the AgentX subagent.
 

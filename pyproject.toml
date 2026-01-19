@@ -8,6 +8,7 @@ show_error_codes = true
 ignore_missing_imports = true
 exclude = [
     "^compiled-mibs/",  # Exclude auto-generated MIB files
+    "^OLD-compiled-mibs/",  # Exclude old compiled MIB files
 ]
 
 [tool.coverage.run]

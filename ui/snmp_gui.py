@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import requests
 from datetime import datetime
-from typing import Optional
 
 
 class SNMPControllerGUI:
@@ -22,7 +21,7 @@ class SNMPControllerGUI:
         """Setup the user interface components."""
         # Main frame with padding
         main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.grid(row=0, column=0, sticky=tk.W + tk.E + tk.N + tk.S)
         
         # Configure grid weights for resizing
         self.root.columnconfigure(0, weight=1)
@@ -37,11 +36,11 @@ class SNMPControllerGUI:
         # Input box
         self.sysdescr_var = tk.StringVar()
         self.entry = ttk.Entry(main_frame, textvariable=self.sysdescr_var, width=50)
-        self.entry.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        
+        self.entry.grid(row=1, column=0, columnspan=2, sticky=tk.W + tk.E, pady=(0, 10))
+
         # Buttons frame
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        button_frame.grid(row=2, column=0, columnspan=2, sticky=tk.W + tk.E, pady=(0, 10))
         
         # Set button
         self.set_button = ttk.Button(button_frame, text="Set sysDescr", command=self._set_sysdescr)
@@ -61,19 +60,19 @@ class SNMPControllerGUI:
         
         # Log window (scrolled text)
         self.log_text = scrolledtext.ScrolledText(
-            main_frame, 
-            width=70, 
-            height=15, 
+            main_frame,
+            width=70,
+            height=15,
             wrap=tk.WORD,
             font=('Courier', 9)
         )
-        self.log_text.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.log_text.grid(row=4, column=0, columnspan=2, sticky=tk.W + tk.E + tk.N + tk.S)
         self.log_text.config(state=tk.DISABLED)
-        
+
         # Status bar
         self.status_var = tk.StringVar(value="Ready")
         status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
-        status_bar.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(5, 0))
+        status_bar.grid(row=5, column=0, columnspan=2, sticky=tk.W + tk.E, pady=(5, 0))
     
     def _log(self, message: str, level: str = "INFO") -> None:
         """Add a message to the log window."""
@@ -162,10 +161,10 @@ class SNMPControllerGUI:
             self.status_var.set("Error occurred")
 
 
-def main():
+def main() -> None:
     """Main entry point for the GUI application."""
     root = tk.Tk()
-    app = SNMPControllerGUI(root)
+    _app = SNMPControllerGUI(root)
     root.mainloop()
 
 
