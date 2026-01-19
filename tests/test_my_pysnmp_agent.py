@@ -23,7 +23,7 @@ class TestSNMPAgent(unittest.TestCase):
 
     def setUp(self) -> None:
         """Create a fresh agent instance for each test."""
-        self.agent = SNMPAgent(host='127.0.0.1', port=10161)
+        self.agent = SNMPAgent(host='127.0.0.1', port=11161)
 
     def tearDown(self) -> None:
         """Clean up the agent."""
@@ -37,16 +37,16 @@ class TestSNMPAgent(unittest.TestCase):
         """Test that agent initializes with default port."""
         agent = SNMPAgent()
         self.assertEqual(agent.host, '127.0.0.1')
-        self.assertEqual(agent.port, 10161)
+        self.assertEqual(agent.port, 11161)
         self.assertEqual(agent.counter, 0)
         self.assertEqual(len(agent.table_rows), 3)
         agent.stop()
 
     def test_agent_initialization_custom_port(self) -> None:
         """Test that agent initializes with custom host and port."""
-        agent = SNMPAgent(host='0.0.0.0', port=10162)
+        agent = SNMPAgent(host='0.0.0.0', port=11162)
         self.assertEqual(agent.host, '0.0.0.0')
-        self.assertEqual(agent.port, 10162)
+        self.assertEqual(agent.port, 11162)
         agent.stop()
 
     def test_agent_has_snmp_engine(self) -> None:

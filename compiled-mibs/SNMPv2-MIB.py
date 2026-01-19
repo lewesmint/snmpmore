@@ -8,7 +8,7 @@
 # Notes
 # -----
 # ASN.1 source file://c:\net-snmp\share\snmp\mibs\SNMPv2-MIB.txt
-# Produced by pysmi-1.6.2 at Mon Jan 19 13:01:56 2026
+# Produced by pysmi-1.6.2 at Mon Jan 19 13:11:56 2026
 # On host Tungsten platform Windows version 11 by user mintz
 # Using Python version 3.13.2 (tags/v3.13.2:4f8bb39, Feb  4 2025, 16:24:41) [MSC v.1942 64 bit (ARM64)]
 

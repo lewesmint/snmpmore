@@ -8,7 +8,7 @@ import uvicorn
 if __name__ == "__main__":
     try:
         # Listen on all interfaces (0.0.0.0) so it's accessible from network
-        agent = SNMPAgent(host='0.0.0.0', port=10161)
+        agent = SNMPAgent(host='0.0.0.0', port=11161)
         api.snmp_agent = agent
         # Start SNMP agent in a background thread
         t = threading.Thread(target=agent.run, daemon=True)

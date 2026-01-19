@@ -29,7 +29,7 @@ snmpget.bat .1.3.6.1.2.1.1.1.0 192.168.1.100:161 private
 ```
 
 **Defaults:**
-- Host: `127.0.0.1:10161`
+- Host: `127.0.0.1:11161`
 - Community: `public`
 - Version: `v2c`
 
@@ -52,7 +52,7 @@ snmpwalk.bat system 192.168.1.100:161 private
 
 **Defaults:**
 - OID: `.1` (entire tree)
-- Host: `127.0.0.1:10161`
+- Host: `127.0.0.1:11161`
 - Community: `public`
 - Version: `v2c`
 
@@ -82,7 +82,7 @@ snmpset.bat .1.3.6.1.4.1.99999.1.2.0 i 42
 ```
 
 **Defaults:**
-- Host: `127.0.0.1:10161`
+- Host: `127.0.0.1:11161`
 - Community: `public`
 - Version: `v2c`
 
@@ -166,7 +166,7 @@ Convenient one-click scripts for common operations:
    $env:PATH += ";C:\code\devspace\snmpmore\bin"
    ```
 
-2. **Make sure the agent is running** on port 10161:
+2. **Make sure the agent is running** on port 11161:
    ```bash
    python run_agent_with_rest.py
    ```
@@ -188,7 +188,7 @@ Convenient one-click scripts for common operations:
 
 **"No response from agent"**
 - Check that the SNMP agent is running
-- Verify the port (default: 10161)
+- Verify the port (default: 11161)
 - Check firewall settings
 
 **"Access denied"**

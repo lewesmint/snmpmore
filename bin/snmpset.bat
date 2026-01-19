@@ -39,7 +39,7 @@ snmpset -v 2c -c %COMMUNITY% %HOST% %OID% %TYPE% %VALUE%
     exit /b 1
 )
 
-if "%HOST%"=="" set HOST=127.0.0.1:10161
+if "%HOST%"=="" set HOST=127.0.0.1:11161
 if "%COMMUNITY%"=="" set COMMUNITY=public
 
 "%~dp0SnmpSet.exe" -r:%HOST% -c:%COMMUNITY% -v:v2c -o:%OID% -tp:%TYPE% -vl:%VALUE%

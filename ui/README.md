@@ -28,7 +28,7 @@ python run_agent_with_rest.py
 ```
 
 This will start:
-- SNMP agent on port 10161
+- SNMP agent on port 11161
 - REST API on http://127.0.0.1:6060
 
 ### 2. Launch the GUI
@@ -52,10 +52,10 @@ You can verify the changes using SNMP commands:
 
 ```bash
 # Get the current sysDescr value
-snmpget -v2c -c public localhost:10161 .1.3.6.1.2.1.1.1.0
+snmpget -v2c -c public localhost:11161 .1.3.6.1.2.1.1.1.0
 
 # Or use snmpwalk
-snmpwalk -v2c -c public localhost:10161 .1.3.6.1.2.1.1.1
+snmpwalk -v2c -c public localhost:11161 .1.3.6.1.2.1.1.1
 ```
 
 ## Architecture

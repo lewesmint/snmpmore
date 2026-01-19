@@ -301,8 +301,8 @@ A minimal example that demonstrates the basics of pysnmp without any complexity.
 ./simple-snmp-agent.py
 
 # In another terminal, test it:
-snmpget -v2c -c public localhost:10161 .1.3.6.1.2.1.1.1.0
-snmpget -v2c -c public localhost:10161 SNMPv2-MIB::sysDescr.0
+snmpget -v2c -c public localhost:11161 .1.3.6.1.2.1.1.1.0
+snmpget -v2c -c public localhost:11161 SNMPv2-MIB::sysDescr.0
 ```
 
 **Expected output:**
@@ -436,11 +436,11 @@ See `mock-behaviour/README.md` for detailed information about the behaviour file
 # Install pysnmp
 pip install pysnmp
 
-# Run the agent (listens on port 10161 by default)
+# Run the agent (listens on port 11161 by default)
 ./my-pysnmp-agent.py
 
 # Test it
-snmpwalk -v2c -c public localhost:10161 .1.3.6.1.4.1.99999
+snmpwalk -v2c -c public localhost:11161 .1.3.6.1.4.1.99999
 ```
 
 ## Customization

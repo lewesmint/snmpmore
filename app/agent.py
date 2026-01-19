@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SNMP agent using pysnmp that exposes scalars and tables as defined in MY-AGENT-MIB.
-Listens on UDP port 10161 (non-privileged) and responds to SNMP queries.
+Listens on UDP port 11161 (non-privileged) and responds to SNMP queries.
 """
 
 import threading
@@ -93,7 +93,7 @@ class SNMPAgent:
 
         Args:
             host: IP address to bind to
-            port: UDP port to listen on (default 10161 for non-root)
+            port: UDP port to listen on (default 11161 for non-root)
             config_path: Path to YAML config listing MIBs
         """
         self.host = host
@@ -178,7 +178,7 @@ class SNMPAgent:
                 try:
                     compiled_py = self._find_compiled_py_by_mib_name(mib)
                 except FileNotFoundError:
-                    # If not found, compile from .txt
+                    # If not found, compile from .txt .mib
                     mib_txt = None
                     search_paths = ['data/mibs']
                     system_mib_dir = r'c:\net-snmp\share\snmp\mibs'

@@ -12,8 +12,8 @@ The agent provides standard SNMPv2-MIB system group objects:
 - sysLocation (.1.3.6.1.2.1.1.6.0) - System location
 
 Run this agent and query it with:
-    snmpget -v2c -c public localhost:10161 .1.3.6.1.2.1.1.1.0
-    snmpwalk -v2c -c public localhost:10161 .1.3.6.1.2.1.1
+    snmpget -v2c -c public localhost:11161 .1.3.6.1.2.1.1.1.0
+    snmpwalk -v2c -c public localhost:11161 .1.3.6.1.2.1.1
 """
 
 from typing import Any
@@ -24,7 +24,7 @@ from pysnmp.entity.rfc3413 import cmdrsp, context
 from pyasn1.type.univ import OctetString, Integer, ObjectIdentifier
 
 
-def create_simple_agent(host: str = '127.0.0.1', port: int = 10161) -> Any:
+def create_simple_agent(host: str = '127.0.0.1', port: int = 11161) -> Any:
     """Create a simple SNMP agent that serves basic system group objects."""
 
     # Create SNMP engine
@@ -123,7 +123,7 @@ def create_simple_agent(host: str = '127.0.0.1', port: int = 10161) -> Any:
 def main() -> None:
     """Run the simple SNMP agent."""
     host = '127.0.0.1'
-    port = 10161
+    port = 11161
 
     print(f'Starting simple SNMP agent on {host}:{port}')
     print(f'Serving SNMPv2-MIB system group objects')
