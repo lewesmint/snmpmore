@@ -10,16 +10,18 @@ class BehaviourGenerator:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def generate(self, compiled_py_path: str, mib_name: str) -> str:
+    def generate(self, compiled_py_path: str, mib_name: str = None) -> str:
         """Generate behaviour JSON from a compiled MIB Python file.
 
         Args:
             compiled_py_path: Path to the compiled MIB .py file
-            mib_name: Name of the MIB module
+            mib_name: Name of the MIB module (optional, will be parsed if not provided)
 
         Returns:
             Path to the generated behaviour JSON file
         """
+        if mib_name is None:
+            mib_name = self._parse_mib_name_from_py(compiled_py_path)
         json_path = os.path.join(self.output_dir, f'{mib_name}_behaviour.json')
 
         if os.path.exists(json_path):
@@ -34,6 +36,19 @@ class BehaviourGenerator:
 
         print(f'Behaviour JSON written to {json_path}')
         return json_path
+
+    def _parse_mib_name_from_py(self, compiled_py_path: str) -> str:
+        """Parse the MIB name from the compiled Python file (looks for mibBuilder.exportSymbols)."""
+        with open(compiled_py_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if 'mibBuilder.exportSymbols' in line:
+                    # Example: mibBuilder.exportSymbols("MY-AGENT-MIB",
+                    import re
+                    m = re.search(r'mibBuilder\.exportSymbols\(["\"]([A-Za-z0-9\-_.]+)["\"]', line)
+                    if m:
+                        return m.group(1)
+        # Fallback: use filename without extension
+        return os.path.splitext(os.path.basename(compiled_py_path))[0]
 
     def _extract_mib_info(self, mib_py_path: str, mib_name: str) -> Dict[str, Any]:
         """Extract MIB symbol information from a compiled MIB Python file.
