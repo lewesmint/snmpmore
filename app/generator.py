@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, Any, cast
+from typing import Dict, Any, cast, Optional
 from pysnmp.smi import builder
 
 
@@ -10,7 +10,7 @@ class BehaviourGenerator:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def generate(self, compiled_py_path: str, mib_name: str = None) -> str:
+    def generate(self, compiled_py_path: str, mib_name: Optional[str] = None) -> str:
         """Generate behaviour JSON from a compiled MIB Python file.
 
         Args:
