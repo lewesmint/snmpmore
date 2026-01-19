@@ -12,7 +12,7 @@
     ],
     "type": "DisplayString",
     "access": "read-only",
-    "initial": null,
+    "initial": 77,
     "dynamic_function": null
   },
   "myCounter": {

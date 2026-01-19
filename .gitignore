@@ -42,5 +42,7 @@ env/
 Thumbs.db
 
 # Compiled MIBs and behavior
+OLD-compiled-mibs/
 compiled-mibs/
+OLD-mock-behavior/
 mock-behavior/
