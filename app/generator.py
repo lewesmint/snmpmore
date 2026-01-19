@@ -4,23 +4,23 @@ from typing import Dict, Any, cast
 from pysnmp.smi import builder
 
 
-class BehaviorGenerator:
-    """Handles generation of behavior JSON from compiled MIB Python files."""
-    def __init__(self, output_dir: str = 'mock-behavior') -> None:
+class BehaviourGenerator:
+    """Handles generation of behaviour JSON from compiled MIB Python files."""
+    def __init__(self, output_dir: str = 'mock-behaviour') -> None:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
     def generate(self, compiled_py_path: str, mib_name: str) -> str:
-        """Generate behavior JSON from a compiled MIB Python file.
+        """Generate behaviour JSON from a compiled MIB Python file.
 
         Args:
             compiled_py_path: Path to the compiled MIB .py file
             mib_name: Name of the MIB module
 
         Returns:
-            Path to the generated behavior JSON file
+            Path to the generated behaviour JSON file
         """
-        json_path = os.path.join(self.output_dir, f'{mib_name}_behavior.json')
+        json_path = os.path.join(self.output_dir, f'{mib_name}_behaviour.json')
 
         if os.path.exists(json_path):
             return json_path
@@ -32,7 +32,7 @@ class BehaviorGenerator:
         with open(json_path, 'w') as f:
             json.dump(info, f, indent=2)
 
-        print(f'Behavior JSON written to {json_path}')
+        print(f'Behaviour JSON written to {json_path}')
         return json_path
 
     def _extract_mib_info(self, mib_py_path: str, mib_name: str) -> Dict[str, Any]:

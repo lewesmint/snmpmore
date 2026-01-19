@@ -41,8 +41,8 @@ env/
 .DS_Store
 Thumbs.db
 
-# Compiled MIBs and behavior
+# Compiled MIBs and behaviour
 OLD-compiled-mibs/
 compiled-mibs/
-OLD-mock-behavior/
-mock-behavior/
+OLD-mock-behaviour/
+mock-behaviour/

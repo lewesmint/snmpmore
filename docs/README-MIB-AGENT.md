@@ -57,7 +57,7 @@ For most projects, use a MIB browser or snmptranslate to extract the OIDs and ty
 
 ### 3. Implement Data Population and Updates
 - Populate your objects with simulated or static data.
-- Update values as needed to mimic real device behavior.
+- Update values as needed to mimic real device behaviour.
 
 ### 4. Run the Agent
 - Start snmpd (the AgentX master) first.

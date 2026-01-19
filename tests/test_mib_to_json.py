@@ -23,12 +23,12 @@ class TestMibToJson(unittest.TestCase):
         """Clean up test fixtures."""
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
-        # Clean up any generated JSON files in mock-behavior directory
-        if os.path.exists('mock-behavior'):
-            for f in os.listdir('mock-behavior'):
-                if f.endswith('_behavior.json') and f.startswith('TEST-'):
+        # Clean up any generated JSON files in mock-behaviour directory
+        if os.path.exists('mock-behaviour'):
+            for f in os.listdir('mock-behaviour'):
+                if f.endswith('_behaviour.json') and f.startswith('TEST-'):
                     try:
-                        os.remove(os.path.join('mock-behavior', f))
+                        os.remove(os.path.join('mock-behaviour', f))
                     except:
                         pass
 
@@ -139,8 +139,8 @@ class TestMibToJson(unittest.TestCase):
         with patch('builtins.print') as mock_print:
             main()
 
-            # Verify JSON file was created in mock-behavior directory
-            json_path = 'mock-behavior/MY-AGENT-MIB_behavior.json'
+            # Verify JSON file was created in mock-behaviour directory
+            json_path = 'mock-behaviour/MY-AGENT-MIB_behaviour.json'
             self.assertTrue(os.path.exists(json_path))
 
             # Verify JSON content
@@ -150,7 +150,7 @@ class TestMibToJson(unittest.TestCase):
 
             # Verify print was called
             mock_print.assert_called_once()
-            self.assertIn('mock-behavior/MY-AGENT-MIB_behavior.json', mock_print.call_args[0][0])
+            self.assertIn('mock-behaviour/MY-AGENT-MIB_behaviour.json', mock_print.call_args[0][0])
 
     def test_main_as_script(self) -> None:
         """Test running main when file is executed as __main__."""

@@ -294,7 +294,7 @@ A minimal example that demonstrates the basics of pysnmp without any complexity.
 **What it does:**
 - Provides a single SNMP object: `sysDescr` (`.1.3.6.1.2.1.1.1.0`)
 - Shows the core pattern for importing MIB classes using `mibBuilder.import_symbols()`
-- No fancy types, no JSON files, no dynamic behavior - just the basics
+- No fancy types, no JSON files, no dynamic behaviour - just the basics
 
 **Run it:**
 ```bash
@@ -314,7 +314,7 @@ This is the **best starting point** if you want to understand how pysnmp works b
 
 ### Full Example: `my-pysnmp-agent.py`
 
-A complete SNMP agent implementation that uses a **data-driven approach** where MIB object definitions are loaded from JSON behavior files rather than being hard-coded. This makes it easy to modify or extend the MIB without changing the agent code.
+A complete SNMP agent implementation that uses a **data-driven approach** where MIB object definitions are loaded from JSON behaviour files rather than being hard-coded. This makes it easy to modify or extend the MIB without changing the agent code.
 
 ### Important: MIB Class Imports in pysnmp
 
@@ -392,29 +392,29 @@ class SNMPAgent:
         instance = self.MibScalarInstance((1, 3, 6, 1, 4, 1, 99999, 1), (0,), OctetString('value'))
 ```
 
-### Mock Behavior Files
+### Mock Behaviour Files
 
-The pysnmp agent uses **behavior definition files** (JSON) to configure MIB objects. These files are located in the `mock-behavior/` directory and are generated from compiled MIBs.
+The pysnmp agent uses **behaviour definition files** (JSON) to configure MIB objects. These files are located in the `mock-behaviour/` directory and are generated from compiled MIBs.
 
-#### What Are Behavior Files?
+#### What Are Behaviour Files?
 
-Behavior files are JSON representations of MIB structure that define:
+Behaviour files are JSON representations of MIB structure that define:
 - Object OIDs and types
 - Initial values
 - Access permissions
-- Optional dynamic behavior functions
+- Optional dynamic behaviour functions
 
 They are the output of the `mib_to_json.py` script, which extracts metadata from compiled MIB files.
 
-#### Generating Behavior Files
+#### Generating Behaviour Files
 
 ```bash
 # Compile your MIB first (if not already done)
 python compile_mib.py data/mibs/MY-AGENT-MIB.mib
 
-# Generate the behavior JSON
+# Generate the behaviour JSON
 python mib_to_json.py compiled-mibs/MY-AGENT-MIB.py MY-AGENT-MIB
-# Output: mock-behavior/MY-AGENT-MIB_behavior.json
+# Output: mock-behaviour/MY-AGENT-MIB_behaviour.json
 ```
 
 #### Directory Structure
@@ -423,12 +423,12 @@ python mib_to_json.py compiled-mibs/MY-AGENT-MIB.py MY-AGENT-MIB
 snmpmore/
 ├── data/mibs/              # Original MIB source files (.mib, .txt)
 ├── compiled-mibs/          # Compiled Python MIB modules (.py)
-└── mock-behavior/          # Behavior definitions (JSON)
+└── mock-behaviour/          # Behaviour definitions (JSON)
     ├── README.md           # Detailed documentation
-    └── MY-AGENT-MIB_behavior.json
+    └── MY-AGENT-MIB_behaviour.json
 ```
 
-See `mock-behavior/README.md` for detailed information about the behavior file format and customization options.
+See `mock-behaviour/README.md` for detailed information about the behaviour file format and customization options.
 
 ### Running the PySNMP Agent
 

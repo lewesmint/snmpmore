@@ -13,7 +13,7 @@ import yaml
 import json
 from typing import Any, Tuple, List, cast
 from app.compiler import MibCompiler
-from app.generator import BehaviorGenerator
+from app.generator import BehaviourGenerator
 from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.smi import builder
@@ -53,18 +53,18 @@ class SNMPAgent:
         return str(value)
 
     def set_scalar_value(self, oid: Tuple[int, ...], value: str) -> None:
-        """Set a scalar value and persist it to the behavior JSON file."""
+        """Set a scalar value and persist it to the behaviour JSON file."""
         # Find the MibScalarInstance for the given OID and set its value (as OctetString)
         mibInstrum = context.SnmpContext(self.snmpEngine).get_mib_instrum()
         mibInstrum.write_variables((oid, OctetString(value)))
 
-        # Persist the change to the behavior JSON file
+        # Persist the change to the behaviour JSON file
         self._persist_scalar_value(oid, value)
 
     def _persist_scalar_value(self, oid: Tuple[int, ...], value: str) -> None:
-        """Persist a scalar value change to the behavior JSON file.
+        """Persist a scalar value change to the behaviour JSON file.
 
-        Updates the 'current' field in the behavior JSON, leaving 'initial' unchanged
+        Updates the 'current' field in the behaviour JSON, leaving 'initial' unchanged
         so values can be reset later.
         """
         # Strip the .0 instance identifier from scalar OIDs
@@ -79,7 +79,7 @@ class SNMPAgent:
                     info['current'] = value
 
                     # Write back to the JSON file
-                    json_path = os.path.join('mock-behavior', f'{mib_name}_behavior.json')
+                    json_path = os.path.join('mock-behaviour', f'{mib_name}_behaviour.json')
                     with open(json_path, 'w') as f:
                         json.dump(mib_json, f, indent=2)
 
@@ -149,15 +149,15 @@ class SNMPAgent:
             config_data = yaml.safe_load(f)
         mibs: List[str] = config_data.get('mibs', [])
         mib_compiler = MibCompiler()
-        behavior_gen = BehaviorGenerator()
+        behaviour_gen = BehaviourGenerator()
         for mib in mibs:
-            # Check if behavior JSON already exists (for behavior-only MIBs like SNMPv2-MIB_system)
-            json_path = os.path.join('mock-behavior', f'{mib}_behavior.json')
+            # Check if behaviour JSON already exists (for behaviour-only MIBs like SNMPv2-MIB_system)
+            json_path = os.path.join('mock-behaviour', f'{mib}_behaviour.json')
             if os.path.exists(json_path):
-                # Load existing behavior JSON
+                # Load existing behaviour JSON
                 with open(json_path, 'r') as jf:
                     self.mib_jsons[mib] = json.load(jf)
-                print(f"{mib}: loaded from existing behavior JSON")
+                print(f"{mib}: loaded from existing behaviour JSON")
             else:
                 # Need to compile MIB from .txt file
                 mib_txt = None
@@ -187,7 +187,7 @@ class SNMPAgent:
                 if not mib_txt:
                     raise FileNotFoundError(f"MIB source for {mib} not found in data/mibs or system MIB directory")
                 compiled_py = mib_compiler.compile(mib_txt)
-                json_path = behavior_gen.generate(compiled_py, mib)
+                json_path = behaviour_gen.generate(compiled_py, mib)
                 with open(json_path, 'r') as jf:
                     self.mib_jsons[mib] = json.load(jf)
 

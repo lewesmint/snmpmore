@@ -33,13 +33,13 @@ def main() -> None:
     mib_name = sys.argv[2]
     info = extract_mib_info(mib_py_path, mib_name)
 
-    # Ensure mock-behavior directory exists
-    os.makedirs('mock-behavior', exist_ok=True)
+    # Ensure mock-behaviour directory exists
+    os.makedirs('mock-behaviour', exist_ok=True)
 
-    json_path = f'mock-behavior/{mib_name}_behavior.json'
+    json_path = f'mock-behaviour/{mib_name}_behaviour.json'
     with open(json_path, 'w') as f:
         json.dump(info, f, indent=2)
-    print(f'Behavior JSON written to {json_path}')
+    print(f'Behaviour JSON written to {json_path}')
 
 if __name__ == '__main__':
     main()

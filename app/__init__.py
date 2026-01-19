@@ -2,7 +2,7 @@
 
 from app.agent import SNMPAgent
 from app.compiler import MibCompiler, MibCompilationError
-from app.generator import BehaviorGenerator
+from app.generator import BehaviourGenerator
 
-__all__ = ['SNMPAgent', 'MibCompiler', 'MibCompilationError', 'BehaviorGenerator']
+__all__ = ['SNMPAgent', 'MibCompiler', 'MibCompilationError', 'BehaviourGenerator']
 
