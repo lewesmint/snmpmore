@@ -46,16 +46,13 @@ Enterprise numbers are assigned by IANA. For testing we use 99999.
 In production, apply for your own PEN.
 """
 
-from __future__ import annotations
-
 import os
 import signal
 import time
 from pathlib import Path
 from typing import Any
 
-import netsnmpagent  # type: ignore[import-untyped]
-
+import netsnmpagent
 
 ENTERPRISE_OID = ".1.3.6.1.4.1.99999"
 

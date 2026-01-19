@@ -1,9 +1,14 @@
 import unittest
+import os
+import sys
 import logging
 from unittest.mock import MagicMock, patch, AsyncMock
 from pysnmp.smi import builder
 from pyasn1.type.univ import OctetString, Integer
-from trap_sender import TrapSender
+
+# Add parent directory to path to import from tools
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tools.trap_sender import TrapSender
 
 
 class TestTrapSender(unittest.TestCase):

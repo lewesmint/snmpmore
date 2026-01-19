@@ -1,10 +1,14 @@
 import unittest
 import os
+import sys
 import json
 import tempfile
 import shutil
 from unittest.mock import patch, MagicMock
-from mib_to_json import extract_mib_info, main
+
+# Add parent directory to path to import from tools
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tools.mib_to_json import extract_mib_info, main
 
 
 class TestMibToJson(unittest.TestCase):

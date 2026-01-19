@@ -13,7 +13,7 @@ class MibCompiler:
         compiled_py = os.path.join(self.output_dir, f'{mib_name}.py')
         if not os.path.exists(compiled_py):
             try:
-                subprocess.run(['python', 'compile_mib.py', mib_txt_path], check=True, capture_output=True, text=True)
+                subprocess.run(['python', 'tools/compile_mib.py', mib_txt_path], check=True, capture_output=True, text=True)
             except subprocess.CalledProcessError as e:
                 output = e.stdout or ''
                 error = e.stderr or ''

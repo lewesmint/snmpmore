@@ -1,9 +1,14 @@
 import unittest
+import os
+import sys
 from unittest.mock import patch
 from pysnmp.smi import builder
 from pyasn1.type.univ import OctetString
-from dynamic_mib_controller import DynamicMibController
 from typing import Any, cast
+
+# Add parent directory to path to import from tools
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tools.dynamic_mib_controller import DynamicMibController
 
 
 class TestDynamicMibController(unittest.TestCase):
