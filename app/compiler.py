@@ -33,12 +33,6 @@ class MibCompiler:
         Raises:
             RuntimeError: If compilation fails
         """
-        mib_name = os.path.splitext(os.path.basename(mib_txt_path))[0]
-        compiled_py = os.path.join(self.output_dir, f'{mib_name}.py')
-
-        if os.path.exists(compiled_py):
-            return compiled_py
-
         # Get the directory containing the MIB file
         mib_dir = os.path.dirname(os.path.abspath(mib_txt_path))
         mib_filename = os.path.basename(mib_txt_path)
@@ -69,12 +63,17 @@ class MibCompiler:
         # Collect all missing dependencies
         missing_deps: List[str] = []
         failed_mibs: List[tuple[str, str]] = []
+        actual_mib_name: str | None = None
 
         # Check results
         for mib, status in results.items():
             mib_name_str: str = str(cast(Any, mib))
             status_str = str(cast(Any, status))
             print(f'{mib_name_str}: {status_str}')
+
+            # Store the actual MIB module name (from inside the file)
+            if actual_mib_name is None:
+                actual_mib_name = mib_name_str
 
             # "compiled" and "untouched" are both success states
             # "untouched" means it was already compiled previously
@@ -84,22 +83,28 @@ class MibCompiler:
                 if 'missing' in status_str.lower():
                     missing_deps.append(mib_name_str)
 
+        # Determine the compiled output path using the actual module name
+        if actual_mib_name is None:
+            raise MibCompilationError(f"No MIB module found in {mib_filename}")
+
+        compiled_py = os.path.join(self.output_dir, f'{actual_mib_name}.py')
+
         # If there are missing dependencies, provide helpful error message
         if missing_deps:
             error_msg = f"\n{'='*70}\n"
-            error_msg += f"ERROR: Failed to compile {mib_name}\n"
+            error_msg += f"ERROR: Failed to compile {actual_mib_name}\n"
             error_msg += f"{'='*70}\n"
             error_msg += f"Missing MIB dependencies: {', '.join(missing_deps)}\n\n"
             error_msg += "To resolve this:\n"
             error_msg += f"  1. Download the missing MIB files ({', '.join(missing_deps)})\n"
             error_msg += "  2. Place them in data/mibs/ or a subdirectory\n"
-            error_msg += f"  3. Add them to agent_config.yaml before {mib_name}\n"
+            error_msg += f"  3. Add them to agent_config.yaml before {actual_mib_name}\n"
             error_msg += f"{'='*70}\n"
             raise MibCompilationError(error_msg, missing_dependencies=missing_deps)
 
         # If there are other failures, report them
         if failed_mibs:
-            error_msg = f"Failed to compile {mib_name}:\n"
+            error_msg = f"Failed to compile {actual_mib_name}:\n"
             for mib, status in failed_mibs:
                 error_msg += f"  - {mib}: {status}\n"
             raise MibCompilationError(error_msg)
