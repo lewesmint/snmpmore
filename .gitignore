@@ -43,6 +43,6 @@ Thumbs.db
 
 # Compiled MIBs and behaviour
 OLD-compiled-mibs/
-compiled-mibs/
+compiled-mibs/*
 OLD-mock-behaviour/
 mock-behaviour/

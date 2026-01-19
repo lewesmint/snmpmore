@@ -141,6 +141,23 @@ class SNMPAgent:
         self._setup_responders()
         self._register_mib_objects()
 
+    def _find_compiled_py_by_mib_name(self, mib_name: str, compiled_dir: str = 'compiled-mibs') -> str:
+        """Scan compiled-mibs for .py files whose export symbol matches mib_name."""
+        import re
+        for fname in os.listdir(compiled_dir):
+            if fname.endswith('.py'):
+                fpath = os.path.join(compiled_dir, fname)
+                try:
+                    with open(fpath, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            if 'mibBuilder.exportSymbols' in line:
+                                m = re.search(r'mibBuilder\.exportSymbols\(["\\']([A-Za-z0-9\-_.]+)["\\']', line)
+                                if m and m.group(1) == mib_name:
+                                    return fpath
+                except Exception:
+                    pass
+        raise FileNotFoundError(f"Compiled MIB .py for {mib_name} not found in {compiled_dir}")
+
     def _load_config_and_prepare_mibs(self, config_path: str) -> None:
         """Load config YAML, ensure compiled MIBs and JSONs exist, generate if missing, using runtime classes."""
         if not os.path.exists(config_path):
@@ -151,42 +168,37 @@ class SNMPAgent:
         mib_compiler = MibCompiler()
         behaviour_gen = BehaviourGenerator()
         for mib in mibs:
-            # Check if behaviour JSON already exists (for behaviour-only MIBs like SNMPv2-MIB_system)
             json_path = os.path.join('mock-behaviour', f'{mib}_behaviour.json')
             if os.path.exists(json_path):
-                # Load existing behaviour JSON
                 with open(json_path, 'r') as jf:
                     self.mib_jsons[mib] = json.load(jf)
                 print(f"{mib}: loaded from existing behaviour JSON")
             else:
-                # Need to compile MIB from .txt file
-                mib_txt = None
-
-                # Search in multiple locations
-                search_paths = ['data/mibs']
-                system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
-                if os.path.exists(system_mib_dir):
-                    search_paths.append(system_mib_dir)
-
-                # Search recursively in all search paths
-                for search_path in search_paths:
-                    for root, _dirs, _files in os.walk(search_path):
-                        # Try with .txt extension first
-                        candidate = os.path.join(root, f'{mib}.txt')
-                        if os.path.exists(candidate):
-                            mib_txt = candidate
+                # Try to find compiled .py by export symbol
+                try:
+                    compiled_py = self._find_compiled_py_by_mib_name(mib)
+                except FileNotFoundError:
+                    # If not found, compile from .txt
+                    mib_txt = None
+                    search_paths = ['data/mibs']
+                    system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
+                    if os.path.exists(system_mib_dir):
+                        search_paths.append(system_mib_dir)
+                    for search_path in search_paths:
+                        for root, _dirs, _files in os.walk(search_path):
+                            candidate = os.path.join(root, f'{mib}.txt')
+                            if os.path.exists(candidate):
+                                mib_txt = candidate
+                                break
+                            candidate = os.path.join(root, mib)
+                            if os.path.exists(candidate):
+                                mib_txt = candidate
+                                break
+                        if mib_txt:
                             break
-                        # Try without extension (system MIBs often have no extension)
-                        candidate = os.path.join(root, mib)
-                        if os.path.exists(candidate):
-                            mib_txt = candidate
-                            break
-                    if mib_txt:
-                        break
-
-                if not mib_txt:
-                    raise FileNotFoundError(f"MIB source for {mib} not found in data/mibs or system MIB directory")
-                compiled_py = mib_compiler.compile(mib_txt)
+                    if not mib_txt:
+                        raise FileNotFoundError(f"MIB source for {mib} not found in data/mibs or system MIB directory")
+                    compiled_py = mib_compiler.compile(mib_txt)
                 json_path = behaviour_gen.generate(compiled_py, mib)
                 with open(json_path, 'r') as jf:
                     self.mib_jsons[mib] = json.load(jf)
