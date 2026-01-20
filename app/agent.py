@@ -219,24 +219,33 @@ class SNMPAgent:
         )
 
     def _setup_community(self) -> None:
-        """Configure SNMPv2c community."""
+        """Configure SNMPv2c community with dynamic VACM based on loaded MIBs."""
         config.add_v1_system(self.snmpEngine, 'my-area', 'public')
 
-        # Allow access to the standard SNMP system group subtree (1.3.6.1.2.1.1)
-        config.add_vacm_user(
-            self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
-            (1, 3, 6, 1, 2, 1, 1)
-        )
-        # Allow access to entire MIB-2 tree (1.3.6.1.2.1) for standard MIBs
-        config.add_vacm_user(
-            self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
-            (1, 3, 6, 1, 2, 1)
-        )
-        # Also allow full access to enterprise subtree
-        config.add_vacm_user(
-            self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
-            (1, 3, 6, 1, 4, 1, 99999)
-        )
+        # Collect all unique OID prefixes from loaded MIBs
+        oid_prefixes = set()
+
+        # Always allow standard SNMP trees
+        oid_prefixes.add((1, 3, 6, 1, 2, 1))  # MIB-2 (standard MIBs)
+        oid_prefixes.add((1, 3, 6, 1, 4, 1))  # enterprises (all vendor MIBs)
+        oid_prefixes.add((1, 3, 6, 1, 6))     # snmpV2 experimental
+
+        # Extract OID prefixes from loaded MIB objects
+        for mib, mib_json in self.mib_jsons.items():
+            for name, info in mib_json.items():
+                oid = info.get('oid')
+                if isinstance(oid, list) and len(oid) >= 4:
+                    # Add various prefix lengths to ensure coverage
+                    # Add the first 4-7 elements as prefixes
+                    for prefix_len in range(4, min(8, len(oid) + 1)):
+                        oid_prefixes.add(tuple(oid[:prefix_len]))
+
+        # Add VACM access for all discovered OID prefixes
+        for oid_prefix in sorted(oid_prefixes):
+            config.add_vacm_user(
+                self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
+                oid_prefix
+            )
 
 
     def _setup_responders(self) -> None:
@@ -267,14 +276,39 @@ class SNMPAgent:
             'OctetString': OctetString,
             'Integer': Integer,
             'ObjectIdentifier': ObjectIdentifier,
+            # Custom types - map to base SNMP types
+            'InterfaceIndexOrZero': Integer32,
+            'EntPhysicalIndexOrZero': Integer32,
+            'CoiAlarmObjectTypeClass': Integer32,
+            'InetAddressType': Integer32,
+            'InetAddress': OctetString,
+            'InetPortNumber': Unsigned32,
         }
 
         # Register all MIBs from config (including SNMPv2-MIB system group)
         for mib, mib_json in self.mib_jsons.items():
+            # First, identify all table-related objects to skip during scalar registration
+            table_related_objects = set()
+            for name, info in mib_json.items():
+                if name.endswith('Table') or name.endswith('Entry'):
+                    table_related_objects.add(name)
+                    # Also mark columns by checking OID hierarchy
+                    if name.endswith('Entry'):
+                        entry_oid = tuple(info.get('oid', []))
+                        for col_name, col_info in mib_json.items():
+                            col_oid = tuple(col_info.get('oid', []))
+                            if (len(col_oid) == len(entry_oid) + 1 and
+                                col_oid[:len(entry_oid)] == entry_oid):
+                                table_related_objects.add(col_name)
+
             # Scalars
             scalar_symbols: list[Any] = []
             registered_count = 0
             for name, info in mib_json.items():
+                # Skip table-related objects
+                if name in table_related_objects:
+                    continue
+
                 oid_value = cast(List[int], info['oid']) if isinstance(info['oid'], list) else []
                 # Register scalar objects (skip tables and non-accessible objects)
                 if (info['type'] in type_map and
@@ -318,48 +352,173 @@ class SNMPAgent:
                 self.mibBuilder.export_symbols(export_name, *scalar_symbols)
                 print(f"Loaded {mib}: {registered_count} objects")
 
-            # Table support (if present)
-            table_info = {k: v for k, v in mib_json.items() if k.startswith('myTable')}
-            if table_info:
-                myTable = self.MibTable(tuple(table_info['myTable']['oid']))
-                myTableEntry = self.MibTableRow(tuple(table_info['myTableEntry']['oid'])).setIndexNames((0, f'__{mib}', 'myTableIndex'))
-                myTableIndex = self.MibTableColumn(tuple(table_info['myTableIndex']['oid']), Integer())
-                myTableName = self.MibTableColumn(tuple(table_info['myTableName']['oid']), OctetString())
-                myTableValue = self.MibTableColumn(tuple(table_info['myTableValue']['oid']), Integer())
-                myTableStatus = self.MibTableColumn(tuple(table_info['myTableStatus']['oid']), OctetString())
-                self.mibBuilder.export_symbols(
-                    f'__{mib}',
-                    myTable=myTable,
-                    myTableEntry=myTableEntry,
-                    myTableIndex=myTableIndex,
-                    myTableName=myTableName,
-                    myTableValue=myTableValue,
-                    myTableStatus=myTableStatus,
-                )
-                # Populate table with demo data (same as before)
-                snmpContext = context.SnmpContext(self.snmpEngine)
-                mibInstrumentation = snmpContext.get_mib_instrum()
-                (myTableEntry, myTableIndex, myTableName,
-                 myTableValue, myTableStatus) = self.mibBuilder.importSymbols(
-                    f'__{mib}', 'myTableEntry', 'myTableIndex', 'myTableName',
-                    'myTableValue', 'myTableStatus'
-                )
-                for row in self.table_rows:
-                    idx, name, value, status = row
-                    rowInstanceId = myTableEntry.getInstIdFromIndices(idx)
-                    mibInstrumentation.write_variables(
-                        (myTableIndex.name + rowInstanceId, idx),
-                        (myTableName.name + rowInstanceId, name),
-                        (myTableValue.name + rowInstanceId, value),
-                        (myTableStatus.name + rowInstanceId, status),
-                    )
+            # Generic table support - detect and register all tables
+            self._register_tables(mib, mib_json, type_map)
+
+    def _register_tables(self, mib: str, mib_json: dict[str, Any], type_map: dict[str, Any]) -> None:
+        """Detect and register all tables in the MIB with a single row instance."""
+        # Skip table registration for standard SNMPv2 and UDP MIBs - they have complex indexes
+        if mib.startswith('SNMPv2-') or mib == 'UDP-MIB':
+            return
+
+        # Find all tables by looking for objects ending in "Table"
+        tables: dict[str, dict[str, Any]] = {}
+
+        for name, info in mib_json.items():
+            if name.endswith('Table') and info.get('access') == 'not-accessible':
+                # Found a table, now find its entry and columns
+                table_prefix = name[:-5]  # Remove "Table" suffix
+                entry_name = f"{table_prefix}Entry"
+
+                # Check if entry exists
+                if entry_name not in mib_json:
+                    continue
+
+                entry_oid = tuple(mib_json[entry_name]['oid'])
+
+                # Collect all columns for this table by checking OID hierarchy
+                # Columns must be direct children of the entry OID
+                columns = {}
+                for col_name, col_info in mib_json.items():
+                    if col_name in [name, entry_name]:
+                        continue
+                    col_oid = tuple(col_info.get('oid', []))
+                    # Check if column OID is a child of entry OID
+                    # e.g., entry: (1,3,6,1,2,1,7,5,1), column: (1,3,6,1,2,1,7,5,1,1)
+                    if (len(col_oid) == len(entry_oid) + 1 and
+                        col_oid[:len(entry_oid)] == entry_oid):
+                        columns[col_name] = col_info
+
+                if columns:
+                    tables[name] = {
+                        'table': info,
+                        'entry': mib_json[entry_name],
+                        'columns': columns,
+                        'prefix': table_prefix
+                    }
+
+        # Register each table
+        for table_name, table_data in tables.items():
+            try:
+                self._register_single_table(mib, table_name, table_data, type_map)
+            except Exception as e:
+                print(f"Warning: Could not register table {table_name}: {e}")
+
+    def _register_single_table(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
+        """Register a single table with one row instance."""
+        table_oid = tuple(table_data['table']['oid'])
+        entry_oid = tuple(table_data['entry']['oid'])
+        columns = table_data['columns']
+        prefix = table_data['prefix']
+
+        export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
+
+        # Check if table is already registered
+        try:
+            existing = self.mibBuilder.import_symbols(export_name, table_name)
+            if existing:
+                raise Exception(f"Symbol {table_name} already exported at {export_name}")
+        except Exception as e:
+            if "already exported" in str(e):
+                raise
+            # Symbol doesn't exist, which is what we want
+            pass
+
+        # Create table and entry objects
+        table_obj = self.MibTable(table_oid)
+
+        # Find the index column (usually the first column or one with "Index" in name)
+        index_col_name = None
+        for col_name, col_info in columns.items():
+            if 'Index' in col_name or col_info.get('access') == 'not-accessible':
+                index_col_name = col_name
+                break
+
+        # If no index found, use the first column
+        if not index_col_name:
+            index_col_name = list(columns.keys())[0]
+
+        # Create table entry with index
+        entry_obj = self.MibTableRow(entry_oid).setIndexNames((0, export_name, index_col_name))
+
+        # Create column objects
+        column_objects = {}
+        symbols_to_export = {
+            table_name: table_obj,
+            f"{prefix}Entry": entry_obj
+        }
+
+        for col_name, col_info in columns.items():
+            col_oid = tuple(col_info['oid'])
+            col_type_name = col_info['type']
+
+            # Map type to pysnmp type, use Integer as fallback
+            pysnmp_type = type_map.get(col_type_name, Integer32)
+
+            col_obj = self.MibTableColumn(col_oid, pysnmp_type())
+            column_objects[col_name] = col_obj
+            symbols_to_export[col_name] = col_obj
+
+        # Export all table symbols
+        self.mibBuilder.export_symbols(export_name, **symbols_to_export)
+
+        # Create a single row instance (index = 1)
+        snmpContext = context.SnmpContext(self.snmpEngine)
+        mibInstrumentation = snmpContext.get_mib_instrum()
+
+        # Import the entry object
+        entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
+
+        # Create row instance with index 1
+        rowInstanceId = entry_imported.getInstIdFromIndices(1)
+
+        # Populate columns with default values
+        write_vars = []
+        for col_name, col_info in columns.items():
+            col_imported = self.mibBuilder.import_symbols(export_name, col_name)[0]
+            col_type_name = col_info['type']
+            pysnmp_type = type_map.get(col_type_name, Integer32)
+
+            # Get initial value from behaviour JSON
+            initial_value = col_info.get('initial')
+            if initial_value is not None:
+                if pysnmp_type in (Integer32, Integer, Counter32, Counter64, Gauge32, Unsigned32):
+                    value = pysnmp_type(initial_value)
+                elif pysnmp_type is OctetString:
+                    value = OctetString(str(initial_value))
+                elif pysnmp_type is IpAddress:
+                    value = IpAddress(str(initial_value) if initial_value else '0.0.0.0')
+                elif pysnmp_type is TimeTicks:
+                    value = TimeTicks(initial_value)
+                else:
+                    value = pysnmp_type(initial_value)
+            else:
+                # Use type-appropriate defaults
+                if pysnmp_type is OctetString:
+                    value = OctetString('')
+                elif pysnmp_type in (Integer32, Integer):
+                    value = pysnmp_type(0)
+                elif pysnmp_type in (Counter32, Counter64, Gauge32, Unsigned32):
+                    value = pysnmp_type(0)
+                elif pysnmp_type is IpAddress:
+                    value = IpAddress('0.0.0.0')
+                elif pysnmp_type is TimeTicks:
+                    value = TimeTicks(0)
+                else:
+                    value = pysnmp_type()
+
+            write_vars.append((col_imported.name + rowInstanceId, value))
+
+        # Write all column values for this row
+        if write_vars:
+            mibInstrumentation.write_variables(*write_vars)
+            print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
 
     def run(self) -> None:
         """Run the SNMP agent (blocking)."""
         print(f'SNMP agent running on {self.host}:{self.port}')
         print(f'Community: public')
-        print(f'Enterprise OID: .1.3.6.1.4.1.99999')
-        print(f'Try: snmpwalk -v2c -c public {self.host}:{self.port} .1.3.6.1.4.1.99999')
+        print(f'Try: snmpwalk -v2c -c public localhost:{self.port}')
         print('Press Ctrl+C to stop')
 
         # Register an imaginary never-ending job to keep I/O dispatcher running forever

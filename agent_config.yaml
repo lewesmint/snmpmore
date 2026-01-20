@@ -9,3 +9,4 @@ mibs:
   # - MY-AGENT-MIB
   - SNMPv2-MIB  # Standard system group (sysDescr, sysContact, etc.)
   - UDP-MIB
+  - CISCO-ALARM-MIB
