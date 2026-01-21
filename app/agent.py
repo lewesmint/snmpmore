@@ -200,7 +200,9 @@ class SNMPAgent:
         mib_compiler = MibCompiler()
         behaviour_gen = BehaviourGenerator()
         compiled_dir = 'compiled-mibs'
-        search_paths = ['data/mibs', 'data/mibs/cisco']
+        # Gather all subdirs (including base)
+        mib_root = 'data/mibs'
+        search_paths = [root for root, _, _ in os.walk(mib_root)] if os.path.exists(mib_root) else []
         system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
         if os.path.exists(system_mib_dir):
             search_paths.append(system_mib_dir)
@@ -212,7 +214,7 @@ class SNMPAgent:
                 continue
             for root, _dirs, files in os.walk(d):
                 for fname in files:
-                    if fname.endswith('.my') or fname.endswith('.txt'):
+                    if fname.endswith(('.my', '.txt', '.mib')):
                         mib_files.append(os.path.join(root, fname))
 
         # Map: mib_name -> (src_path, set(imported_mibs))
