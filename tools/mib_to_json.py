@@ -4,38 +4,38 @@ import json
 from typing import Dict, Any, cast
 from pysnmp.smi import builder
 
-def extract_mib_info(mib_py_path: str, mib_name: str) -> Dict[str, Any]:
-    def check_imported_mibs(mib_txt_path: str, compiled_dir: str):
-        """Parse IMPORTS section of the MIB text file and warn about missing compiled MIBs."""
-        if not os.path.exists(mib_txt_path):
-            print(f"WARNING: MIB source file {mib_txt_path} not found for import check.")
-            return
-        with open(mib_txt_path, 'r') as f:
-            lines = f.readlines()
-        in_imports = False
-        imported_mibs = set()
-        for line in lines:
-            l = line.strip()
-            if l.startswith('IMPORTS'):
-                in_imports = True
-                continue
-            if in_imports:
-                if ';' in l:
-                    in_imports = False
-                    l = l.split(';')[0]
-                # Look for FROM <MIB-NAME>
-                parts = l.split('FROM')
-                if len(parts) == 2:
-                    mib_name = parts[1].strip().rstrip(';')
-                    # Remove trailing comments
-                    mib_name = mib_name.split()[0]
-                    imported_mibs.add(mib_name)
-        # Check for missing compiled MIBs
-        for mib in imported_mibs:
-            py_path = os.path.join(compiled_dir, f"{mib}.py")
-            if not os.path.exists(py_path):
-                print(f"WARNING: MIB imports {mib}, but {py_path} is missing. Compile this MIB to avoid runtime errors.")
+def check_imported_mibs(mib_txt_path: str, compiled_dir: str) -> None:
+    """Parse IMPORTS section of the MIB text file and warn about missing compiled MIBs."""
+    if not os.path.exists(mib_txt_path):
+        print(f"WARNING: MIB source file {mib_txt_path} not found for import check.")
+        return
+    with open(mib_txt_path, 'r') as f:
+        lines = f.readlines()
+    in_imports = False
+    imported_mibs = set()
+    for line in lines:
+        l = line.strip()
+        if l.startswith('IMPORTS'):
+            in_imports = True
+            continue
+        if in_imports:
+            if ';' in l:
+                in_imports = False
+                l = l.split(';')[0]
+            # Look for FROM <MIB-NAME>
+            parts = l.split('FROM')
+            if len(parts) == 2:
+                mib_name = parts[1].strip().rstrip(';')
+                # Remove trailing comments
+                mib_name = mib_name.split()[0]
+                imported_mibs.add(mib_name)
+    # Check for missing compiled MIBs
+    for mib in imported_mibs:
+        py_path = os.path.join(compiled_dir, f"{mib}.py")
+        if not os.path.exists(py_path):
+            print(f"WARNING: MIB imports {mib}, but {py_path} is missing. Compile this MIB to avoid runtime errors.")
 
+def extract_mib_info(mib_py_path: str, mib_name: str) -> Dict[str, Any]:
     mibBuilder = builder.MibBuilder()
     mibBuilder.add_mib_sources(builder.DirMibSource(os.path.dirname(mib_py_path)))
     mibBuilder.load_modules(mib_name)

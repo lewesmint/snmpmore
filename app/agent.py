@@ -117,8 +117,9 @@ class SNMPAgent:
             'MibTableColumn'
         )
 
-        # Import RowStatus from SNMPv2-TC for proper table row handling
+        # Import special TextualConventions from SNMPv2-TC for proper handling
         (self.RowStatus,) = self.mibBuilder.import_symbols('SNMPv2-TC', 'RowStatus')
+        (self.TestAndIncr,) = self.mibBuilder.import_symbols('SNMPv2-TC', 'TestAndIncr')
 
         # Counter for dynamic scalar
         self.counter = 0
@@ -126,6 +127,18 @@ class SNMPAgent:
 
         # Start time for TimeTicks
         self.start_time = time.time()
+
+        # Create a dynamic uptime MibScalarInstance subclass
+        agent_ref = self
+        MibScalarInstanceBase = self.MibScalarInstance
+
+        class DynamicUptimeInstance(MibScalarInstanceBase):  # type: ignore[valid-type,misc]
+            """MibScalarInstance that returns current uptime on each GET."""
+            def getValue(self, name: Any, **context: Any) -> Any:
+                uptime_ticks = int((time.time() - agent_ref.start_time) * 100)
+                return TimeTicks(uptime_ticks)
+
+        self.DynamicUptimeInstance = DynamicUptimeInstance
 
         # Load config and ensure MIBs/JSONs exist
         self.mib_jsons: dict[str, Any] = {}
@@ -394,7 +407,7 @@ class SNMPAgent:
             'InetPortNumber': Unsigned32,
             'TruthValue': Integer32,
             'TimeStamp': TimeTicks,
-            'TestAndIncr': Integer32,
+            'TestAndIncr': self.TestAndIncr,  # Use actual TestAndIncr from SNMPv2-TC
             'AutonomousType': ObjectIdentifier,
             'RowStatus': self.RowStatus,  # Use actual RowStatus from SNMPv2-TC
             'PhysAddress': OctetString,
@@ -427,7 +440,7 @@ class SNMPAgent:
                             table_related_objects.add(col_name)
         return table_related_objects
 
-    def _get_pysnmp_type_from_info(self, type_name: str, type_info: Optional[dict[str, Any]], type_map: dict[str, Any]) -> type:
+    def _get_pysnmp_type_from_info(self, type_name: str, type_info: Optional[dict[str, Any]], type_map: dict[str, Any]) -> Any:
         """Get the pysnmp type class from type_info or type_map."""
         # If we have type_info with base_type, use that
         if type_info and 'base_type' in type_info:
@@ -468,14 +481,17 @@ class SNMPAgent:
             # OwnerString: DisplayString but may have specific constraints
             if type_name == 'OwnerString':
                 return OctetString('admin')
-            # TestAndIncr: Integer32 with special semantics, but still needs a valid integer value
+            # TestAndIncr: Use actual TestAndIncr type from SNMPv2-TC
             if type_name == 'TestAndIncr':
-                return Integer32(0)
+                return self.TestAndIncr(0)
             # RowStatus: Use notInService(2) as safe default for read-only contexts
             if type_name == 'RowStatus':
                 return self.RowStatus(2)  # notInService
 
         if initial_value is not None and initial_value != '':
+            # Handle TestAndIncr specially - use the actual TestAndIncr class
+            if type_name == 'TestAndIncr':
+                return self.TestAndIncr(int(initial_value))
             # Handle RowStatus specially - use the actual RowStatus class
             if type_name == 'RowStatus':
                 return self.RowStatus(int(initial_value))
@@ -524,13 +540,15 @@ class SNMPAgent:
                 info.get('access') not in ['not-accessible', 'accessible-for-notify']):
                 scalar_oid = tuple(oid_value)
                 dynamic_func = info.get('dynamic_function')
+                scalar_symbols.append(self.MibScalar(scalar_oid, pysnmp_type()))
+
                 if dynamic_func == 'uptime':
-                    value = TimeTicks(int((time.time() - self.start_time) * 100))
+                    # Use dynamic instance that computes uptime on each GET
+                    scalar_symbols.append(self.DynamicUptimeInstance(scalar_oid, (0,), TimeTicks(0)))
                 else:
                     value_str = info.get('current') if 'current' in info else info.get('initial')
                     value = self._get_snmp_value(pysnmp_type, value_str, info['type'], name, type_info)
-                scalar_symbols.append(self.MibScalar(scalar_oid, pysnmp_type()))
-                scalar_symbols.append(self.MibScalarInstance(scalar_oid, (0,), value))
+                    scalar_symbols.append(self.MibScalarInstance(scalar_oid, (0,), value))
                 registered_count += 1
         if scalar_symbols:
             export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
@@ -610,14 +628,22 @@ class SNMPAgent:
         table_obj = self.MibTable(table_oid)
 
         # Find the index column (usually the first column or one with "Index" in name)
+        # For AUGMENTS tables (like ifXTable), they inherit the index from the base table
         index_col_name = None
+        index_is_inherited = False
+
         for col_name, col_info in columns.items():
             if 'Index' in col_name or col_info.get('access') == 'not-accessible':
                 index_col_name = col_name
                 break
 
-        # If no index found, use the first column
+        # If no index found, check if this is an AUGMENTS table
+        # Common pattern: ifXTable augments ifEntry (uses ifIndex from ifTable)
+        # These tables don't have their own index column - they inherit it
+        augments_tables = {'ifXTable', 'ifTestTable'}
         if not index_col_name:
+            if table_name in augments_tables:
+                index_is_inherited = True  # Will use integer index
             index_col_name = list(columns.keys())[0]
 
         # Always instantiate at least one row for every table, using correct index type
@@ -669,8 +695,12 @@ class SNMPAgent:
 
         # Determine the appropriate index value based on the type
         # For integer-like types, use 1; for string-like types, use a simple value
+        # For inherited indexes (AUGMENTS tables), always use integer
         index_value: Any
-        if index_pysnmp_type in (Integer32, Integer, Unsigned32, Gauge32, Counter32, Counter64, TimeTicks):
+        if index_is_inherited:
+            # AUGMENTS tables inherit integer index from base table
+            index_value = 1
+        elif index_pysnmp_type in (Integer32, Integer, Unsigned32, Gauge32, Counter32, Counter64, TimeTicks):
             index_value = 1
         elif index_col_type == 'PhysAddress':
             # PhysAddress expects hex bytes (MAC address format)
@@ -691,7 +721,13 @@ class SNMPAgent:
         mibInstrumentation = snmpContext.get_mib_instrum()
         try:
             entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
-            rowInstanceId = entry_imported.getInstIdFromIndices(index_value)
+
+            # For AUGMENTS tables, construct row instance ID directly as simple integer tuple
+            # This avoids issues with getInstIdFromIndices() using wrong column type for encoding
+            if index_is_inherited:
+                rowInstanceId = (index_value,)  # Simple integer index tuple
+            else:
+                rowInstanceId = entry_imported.getInstIdFromIndices(index_value)
 
             # Populate columns with default values
             write_vars = []
@@ -700,7 +736,6 @@ class SNMPAgent:
                 col_imported = self.mibBuilder.import_symbols(export_name, col_name)[0]
                 col_type_name = col_info['type']
                 type_info = col_info.get('type_info')
-                # Use type_info to get the correct pysnmp type
                 pysnmp_type = self._get_pysnmp_type_from_info(col_type_name, type_info, type_map)
                 initial_value = col_info.get('initial')
 
@@ -717,12 +752,13 @@ class SNMPAgent:
                     continue
 
             if write_vars:
-                # Try writing all variables at once first
+                # Try batch write first (most efficient)
                 try:
                     mibInstrumentation.write_variables(*write_vars)
                     print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
                 except Exception as e:
-                    # If batch write fails, try one by one to identify the problematic column
+                    # Batch write fails for tables with TestAndIncr columns (special locking semantics)
+                    # Individual writes handle this correctly - see docs/SNMP_ROW_CREATION_AND_SET_SEMANTICS.md
                     col_names = list(columns.keys())
                     failed_columns = []
                     success_count = 0
@@ -735,7 +771,6 @@ class SNMPAgent:
                         except Exception as col_error:
                             failed_columns.append(f"{col_name} ({col_type})")
 
-                    # If all columns succeeded individually, consider it a success
                     if success_count == len(write_vars):
                         print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
                     elif failed_columns:
