@@ -37,6 +37,9 @@ env/
 *.snmpwalk
 .snmp/
 
+# Archive for old tests
+tests/old/
+
 # OS
 .DS_Store
 Thumbs.db

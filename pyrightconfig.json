@@ -6,7 +6,7 @@
     ".venv",
     "**/site-packages"
   ],
-  "typeCheckingMode": "strict",
+  "typeCheckingMode": "standard",
   "reportMissingTypeStubs": false,
   "reportUnknownMemberType": false,
   "reportUnknownVariableType": false

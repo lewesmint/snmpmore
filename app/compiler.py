@@ -20,6 +20,7 @@ class MibCompiler:
     def __init__(self, output_dir: str = 'compiled-mibs') -> None:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
+        self.last_compile_results: dict[str, str] = {}  # Track last compilation results
 
     def compile(self, mib_txt_path: str) -> str:
         """Compile a MIB .txt file to Python.
@@ -67,16 +68,19 @@ class MibCompiler:
         # Compile the MIB
         results = compiler.compile(mib_filename)
 
+        # Store results for caller to access
+        self.last_compile_results = {str(cast(Any, mib)): str(cast(Any, status)) for mib, status in results.items()}
+
         # Collect all missing dependencies
         missing_deps: List[str] = []
         failed_mibs: List[tuple[str, str]] = []
         actual_mib_name: str | None = None
 
-        # Check results
+        # Check results (don't print here - let caller handle printing)
         for mib, status in results.items():
             mib_name_str: str = str(cast(Any, mib))
             status_str = str(cast(Any, status))
-            print(f'{mib_name_str}: {status_str}')
+            # Don't print status here - caller will handle it to avoid duplicates
 
             # Store the actual MIB module name (from inside the file)
             if actual_mib_name is None:

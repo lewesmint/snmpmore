@@ -8,5 +8,7 @@
 mibs:
   # - MY-AGENT-MIB
   - SNMPv2-MIB  # Standard system group (sysDescr, sysContact, etc.)
-  - UDP-MIB
+  - IF-MIB
+  - HOST-RESOURCES-MIB
+  - HOST-RESOURCES-TYPES
   - CISCO-ALARM-MIB

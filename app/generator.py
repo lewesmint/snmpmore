@@ -66,25 +66,32 @@ class BehaviourGenerator:
         mib_symbols = mibBuilder.mibSymbols[mib_name]
 
         result: Dict[str, Any] = {}
+        from pysnmp.smi import instrum, exval, builder as smi_builder
         for symbol_name, symbol_obj in mib_symbols.items():
             symbol_name_str: str = str(cast(Any, symbol_name))
-            # Only process scalars and columns
-            if hasattr(cast(Any, symbol_obj), 'getName') and hasattr(cast(Any, symbol_obj), 'getSyntax'):
-                oid = cast(Any, symbol_obj).getName()
-                syntax = cast(Any, symbol_obj).getSyntax().__class__.__name__
-                access = getattr(cast(Any, symbol_obj), 'getMaxAccess', lambda: 'unknown')()
+            # Only process real MIB nodes (skip classes, constants, etc.)
+            # Must have getName and getSyntax as bound methods (not just attributes)
+            if not (hasattr(symbol_obj, 'getName') and hasattr(symbol_obj, 'getSyntax')):
+                continue
+            # Ensure getName is a method bound to the instance
+            try:
+                oid = symbol_obj.getName()
+                syntax = symbol_obj.getSyntax().__class__.__name__
+                access = getattr(symbol_obj, 'getMaxAccess', lambda: 'unknown')()
+            except TypeError:
+                continue
 
-                # Provide sensible default initial values based on type
-                initial_value = self._get_default_value(syntax, symbol_name_str)
-                dynamic_func = self._get_dynamic_function(symbol_name_str)
+            # Provide sensible default initial values based on type
+            initial_value = self._get_default_value(syntax, symbol_name_str)
+            dynamic_func = self._get_dynamic_function(symbol_name_str)
 
-                result[symbol_name_str] = {
-                    'oid': oid,
-                    'type': syntax,
-                    'access': access,
-                    'initial': initial_value,
-                    'dynamic_function': dynamic_func
-                }
+            result[symbol_name_str] = {
+                'oid': oid,
+                'type': syntax,
+                'access': access,
+                'initial': initial_value,
+                'dynamic_function': dynamic_func
+            }
         return result
 
     def _get_default_value(self, syntax: str, symbol_name: str) -> Any:
@@ -105,7 +112,7 @@ class BehaviourGenerator:
 
         # Type-based defaults
         if syntax in ('DisplayString', 'OctetString'):
-            return ''
+            return 'unset'
         elif syntax == 'ObjectIdentifier':
             return '0.0'
         elif syntax in ('Integer32', 'Integer', 'Gauge32', 'Unsigned32'):

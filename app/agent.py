@@ -39,7 +39,6 @@ Integer32 = v2c.Integer32
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
-
 class SNMPAgent:
     """SNMP Agent that serves enterprise MIB data."""
 
@@ -125,13 +124,6 @@ class SNMPAgent:
         # Start time for TimeTicks
         self.start_time = time.time()
 
-        # Table data
-        self.table_rows = [
-            [1, 'sensor_a', 25, 'ok'],
-            [2, 'sensor_b', 30, 'ok'],
-            [3, 'sensor_c', 45, 'warning'],
-        ]
-
         # Load config and ensure MIBs/JSONs exist
         self.mib_jsons: dict[str, Any] = {}
         self._load_config_and_prepare_mibs(config_path)
@@ -151,7 +143,7 @@ class SNMPAgent:
                     with open(fpath, 'r', encoding='utf-8') as f:
                         for line in f:
                             if 'mibBuilder.exportSymbols' in line:
-                                m = re.search(r'mibBuilder\.exportSymbols\(["\\']([A-Za-z0-9\-_.]+)["\\']', line)
+                                m = re.search(r'mibBuilder\.exportSymbols\(["\']([A-Za-z0-9\-_.]+)["\']', line)
                                 if m and m.group(1) == mib_name:
                                     return fpath
                 except Exception:
@@ -180,7 +172,10 @@ class SNMPAgent:
         raise FileNotFoundError(f"MIB source for {mib_name} not found in search paths {search_paths}")
 
     def _load_config_and_prepare_mibs(self, config_path: str) -> None:
-        """Load config YAML, ensure compiled MIBs and JSONs exist, generate if missing, using runtime classes."""
+        """Load config YAML, ensure compiled MIBs and JSONs exist, generate if missing, using runtime classes.
+        Build and generate in dependency order."""
+        import re
+        from collections import defaultdict, deque
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Config file {config_path} not found")
         with open(config_path, 'r') as f:
@@ -188,27 +183,137 @@ class SNMPAgent:
         mibs: List[str] = config_data.get('mibs', [])
         mib_compiler = MibCompiler()
         behaviour_gen = BehaviourGenerator()
+        compiled_dir = 'compiled-mibs'
+        search_paths = ['data/mibs', 'data/mibs/cisco']
+        system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
+        if os.path.exists(system_mib_dir):
+            search_paths.append(system_mib_dir)
+
+        # Find all MIB source files
+        mib_files = []
+        for d in search_paths:
+            if not os.path.exists(d):
+                continue
+            for root, _dirs, files in os.walk(d):
+                for fname in files:
+                    if fname.endswith('.my') or fname.endswith('.txt'):
+                        mib_files.append(os.path.join(root, fname))
+
+        # Map: mib_name -> (src_path, set(imported_mibs))
+        mib_imports = {}
+        mib_name_to_file = {}
+        for path in mib_files:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+            # Find MIB name
+            mib_name = None
+            for line in lines:
+                m = re.match(r'\s*([A-Za-z0-9\-_.]+)\s+DEFINITIONS\s+::=\s+BEGIN', line)
+                if m:
+                    mib_name = m.group(1)
+                    break
+            if not mib_name:
+                continue
+            mib_name_to_file[mib_name] = path
+            # Find IMPORTS section
+            imported = set()
+            in_imports = False
+            for line in lines:
+                l = line.strip()
+                if l.startswith('IMPORTS'):
+                    in_imports = True
+                    continue
+                if in_imports:
+                    if ';' in l:
+                        in_imports = False
+                        l = l.split(';')[0]
+                    parts = l.split('FROM')
+                    if len(parts) == 2:
+                        dep = parts[1].strip().rstrip(';').split()[0]
+                        imported.add(dep)
+            mib_imports[mib_name] = (path, imported)
+
+        # Build dependency graph
+        edges = defaultdict(set)
+        reverse_edges = defaultdict(set)
+        for mib, (_path, imports) in mib_imports.items():
+            for dep in imports:
+                if dep in mib_imports:
+                    edges[mib].add(dep)
+                    reverse_edges[dep].add(mib)
+
+        # Topological sort
+        order = []
+        no_deps = deque([mib for mib in mib_imports if not edges[mib]])
+        visited = set()
+        while no_deps:
+            mib = no_deps.popleft()
+            if mib in visited:
+                continue
+            order.append(mib)
+            visited.add(mib)
+            for child in reverse_edges[mib]:
+                edges[child].remove(mib)
+                if not edges[child]:
+                    no_deps.append(child)
+        # Add any remaining (cyclic or missing) at the end
+        for mib in mib_imports:
+            if mib not in visited:
+                order.append(mib)
+
+        # Only build MIBs that are in the config or are dependencies of those
+        required = set()
+        def collect_deps(mib: str) -> None:
+            if mib in required:
+                return
+            required.add(mib)
+            for dep in mib_imports.get(mib, (None, set()))[1]:
+                collect_deps(dep)
         for mib in mibs:
+            collect_deps(mib)
+        build_order = [mib for mib in order if mib in required]
+
+        # Track which MIBs were compiled in this session
+        compiled_this_session = set()
+
+        for mib in build_order:
+            src_path = mib_name_to_file.get(mib)
+            if not src_path:
+                print(f"WARNING: No source file found for {mib}, skipping.")
+                continue
+            compiled_py = os.path.join(compiled_dir, f'{mib}.py')
             json_path = os.path.join('mock-behaviour', f'{mib}_behaviour.json')
-            if os.path.exists(json_path):
-                with open(json_path, 'r') as jf:
-                    self.mib_jsons[mib] = json.load(jf)
-                print(f"{mib}: loaded from existing behaviour JSON")
-            else:
-                # Try to find compiled .py by export symbol
+
+            # Compile if needed
+            if not os.path.exists(compiled_py):
                 try:
-                    compiled_py = self._find_compiled_py_by_mib_name(mib)
-                except FileNotFoundError:
-                    # If not found, compile from any file with matching internal MIB name
-                    search_paths = ['data/mibs']
-                    system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
-                    if os.path.exists(system_mib_dir):
-                        search_paths.append(system_mib_dir)
-                    mib_txt = self._find_mib_source_by_name(mib, search_paths)
-                    compiled_py = mib_compiler.compile(mib_txt)
-                json_path = behaviour_gen.generate(compiled_py, mib)
+                    compiled_py = mib_compiler.compile(src_path)
+                    # Check if this specific MIB was compiled (not just dependencies)
+                    if mib in mib_compiler.last_compile_results:
+                        status = mib_compiler.last_compile_results[mib]
+                        if status == 'compiled':
+                            compiled_this_session.add(mib)
+                            print(f"{mib}: compiled")
+                except Exception as e:
+                    print(f"FATAL: Failed to compile {mib}: {e}")
+                    import sys
+                    sys.exit(1)
+
+            # Generate behaviour JSON if needed
+            if not os.path.exists(json_path):
+                try:
+                    json_path = behaviour_gen.generate(compiled_py, mib)
+                    print(f"Behaviour JSON written to {json_path}")
+                except Exception as e:
+                    print(f"FATAL: Failed to generate behaviour JSON for {mib}: {e}")
+                    import sys
+                    sys.exit(1)
+
+            # Only load JSONs for MIBs in config
+            if mib in mibs:
                 with open(json_path, 'r') as jf:
                     self.mib_jsons[mib] = json.load(jf)
+                print(f"{mib}: loaded from behaviour JSON")
 
     def _setup_transport(self) -> None:
         """Configure UDP transport."""
@@ -219,33 +324,32 @@ class SNMPAgent:
         )
 
     def _setup_community(self) -> None:
-        """Configure SNMPv2c community with dynamic VACM based on loaded MIBs."""
+        """Configure SNMPv2c community with explicit VACM setup, restricting snmpModules (.1.3.6.1.6.3)."""
+        # Add community
         config.add_v1_system(self.snmpEngine, 'my-area', 'public')
 
-        # Collect all unique OID prefixes from loaded MIBs
-        oid_prefixes = set()
+        # Setup VACM context
+        config.add_context(self.snmpEngine, '')
 
-        # Always allow standard SNMP trees
-        oid_prefixes.add((1, 3, 6, 1, 2, 1))  # MIB-2 (standard MIBs)
-        oid_prefixes.add((1, 3, 6, 1, 4, 1))  # enterprises (all vendor MIBs)
-        oid_prefixes.add((1, 3, 6, 1, 6))     # snmpV2 experimental
+        # Setup VACM group
+        config.add_vacm_group(self.snmpEngine, 'mygroup', 2, 'my-area')
 
-        # Extract OID prefixes from loaded MIB objects
-        for mib, mib_json in self.mib_jsons.items():
-            for name, info in mib_json.items():
-                oid = info.get('oid')
-                if isinstance(oid, list) and len(oid) >= 4:
-                    # Add various prefix lengths to ensure coverage
-                    # Add the first 4-7 elements as prefixes
-                    for prefix_len in range(4, min(8, len(oid) + 1)):
-                        oid_prefixes.add(tuple(oid[:prefix_len]))
+        # Setup restricted view: include .1.3.6.1, exclude .1.3.6.1.6.3
+        config.add_vacm_view(self.snmpEngine, 'restrictedView', 1, (1, 3, 6, 1), '')  # included
+        config.add_vacm_view(self.snmpEngine, 'restrictedView', 2, (1, 3, 6, 1, 6, 3), '')  # excluded
 
-        # Add VACM access for all discovered OID prefixes
-        for oid_prefix in sorted(oid_prefixes):
-            config.add_vacm_user(
-                self.snmpEngine, 2, 'my-area', 'noAuthNoPriv',
-                oid_prefix
-            )
+        # Setup VACM access for the group, using the restricted view for read/write/notify
+        config.add_vacm_access(
+            self.snmpEngine,
+            'mygroup',  # groupName
+            '',         # contextPrefix
+            2,          # securityModel (v2c)
+            'noAuthNoPriv',  # securityLevel
+            'exact',    # contextMatch
+            'restrictedView',  # readView
+            'restrictedView',  # writeView
+            'restrictedView'   # notifyView
+        )
 
 
     def _setup_responders(self) -> None:
@@ -262,6 +366,7 @@ class SNMPAgent:
             self.counter += 1
             return Integer(self.counter)
 
+
     def _register_mib_objects(self) -> None:
         """Register all MIB objects (scalars and tables) for all MIBs in config."""
         type_map = {
@@ -277,83 +382,136 @@ class SNMPAgent:
             'Integer': Integer,
             'ObjectIdentifier': ObjectIdentifier,
             # Custom types - map to base SNMP types
+            'InterfaceIndex': Integer32,
             'InterfaceIndexOrZero': Integer32,
             'EntPhysicalIndexOrZero': Integer32,
             'CoiAlarmObjectTypeClass': Integer32,
             'InetAddressType': Integer32,
             'InetAddress': OctetString,
             'InetPortNumber': Unsigned32,
+            'TruthValue': Integer32,
+            'TimeStamp': TimeTicks,
+            'TestAndIncr': Integer32,
+            'AutonomousType': ObjectIdentifier,
+            'RowStatus': Integer32,
+            'PhysAddress': OctetString,
+            'OwnerString': OctetString,
+            'DateAndTime': OctetString,
+            # HOST-RESOURCES-MIB custom types
+            'ProductID': ObjectIdentifier,  # TextualConvention based on ObjectIdentifier
+            'InternationalDisplayString': OctetString,  # TextualConvention based on OctetString
+            'KBytes': Integer32,  # TextualConvention based on Integer32
+            # IANAifType-MIB custom types
+            'IANAifType': Integer32,  # TextualConvention based on Integer32 (enum for interface types)
         }
 
-        # Register all MIBs from config (including SNMPv2-MIB system group)
         for mib, mib_json in self.mib_jsons.items():
-            # First, identify all table-related objects to skip during scalar registration
-            table_related_objects = set()
-            for name, info in mib_json.items():
-                if name.endswith('Table') or name.endswith('Entry'):
-                    table_related_objects.add(name)
-                    # Also mark columns by checking OID hierarchy
-                    if name.endswith('Entry'):
-                        entry_oid = tuple(info.get('oid', []))
-                        for col_name, col_info in mib_json.items():
-                            col_oid = tuple(col_info.get('oid', []))
-                            if (len(col_oid) == len(entry_oid) + 1 and
-                                col_oid[:len(entry_oid)] == entry_oid):
-                                table_related_objects.add(col_name)
-
-            # Scalars
-            scalar_symbols: list[Any] = []
-            registered_count = 0
-            for name, info in mib_json.items():
-                # Skip table-related objects
-                if name in table_related_objects:
-                    continue
-
-                oid_value = cast(List[int], info['oid']) if isinstance(info['oid'], list) else []
-                # Register scalar objects (skip tables and non-accessible objects)
-                if (info['type'] in type_map and
-                    isinstance(info['oid'], list) and
-                    len(oid_value) > 0 and
-                    info.get('access') not in ['not-accessible', 'accessible-for-notify']):
-                    pysnmp_type = type_map[info['type']]
-                    scalar_oid = tuple(oid_value)
-
-                    # Check if this is a dynamic function
-                    dynamic_func = info.get('dynamic_function')
-                    if dynamic_func == 'uptime':
-                        # Special handling for sysUpTime - calculate from start_time
-                        value = TimeTicks(int((time.time() - self.start_time) * 100))
-                    else:
-                        # Use 'current' if it exists, otherwise fall back to 'initial'
-                        value_str = info.get('current') if 'current' in info else info.get('initial')
-                        if value_str is not None:
-                            value = pysnmp_type(value_str)
-                        else:
-                            # No initial/current value, use type-appropriate defaults
-                            if pysnmp_type is OctetString:
-                                value = OctetString('default')
-                            elif pysnmp_type is Integer32 or pysnmp_type is Integer:
-                                value = pysnmp_type(0)
-                            elif pysnmp_type in (Counter32, Counter64, Gauge32, Unsigned32):
-                                value = pysnmp_type(0)
-                            elif pysnmp_type is IpAddress:
-                                value = IpAddress('127.0.0.1')
-                            elif pysnmp_type is TimeTicks:
-                                value = TimeTicks(0)
-                            else:
-                                value = pysnmp_type()
-                    scalar_symbols.append(self.MibScalar(scalar_oid, pysnmp_type()))
-                    scalar_symbols.append(self.MibScalarInstance(scalar_oid, (0,), value))
-                    registered_count += 1
-            if scalar_symbols:
-                # Use actual MIB name for standard MIBs (SNMPv2-MIB, etc.)
-                # Use __MIB for custom MIBs to avoid conflicts
-                export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
-                self.mibBuilder.export_symbols(export_name, *scalar_symbols)
-                print(f"Loaded {mib}: {registered_count} objects")
-
-            # Generic table support - detect and register all tables
+            table_related_objects = self._find_table_related_objects(mib_json)
+            self._register_scalars(mib, mib_json, table_related_objects, type_map)
             self._register_tables(mib, mib_json, type_map)
+
+    def _find_table_related_objects(self, mib_json: dict[str, Any]) -> set[str]:
+        """Return set of table-related object names (tables, entries, columns)."""
+        table_related_objects = set()
+        for name, info in mib_json.items():
+            if name.endswith('Table') or name.endswith('Entry'):
+                table_related_objects.add(name)
+                if name.endswith('Entry'):
+                    entry_oid = tuple(info.get('oid', []))
+                    for col_name, col_info in mib_json.items():
+                        col_oid = tuple(col_info.get('oid', []))
+                        if (len(col_oid) == len(entry_oid) + 1 and col_oid[:len(entry_oid)] == entry_oid):
+                            table_related_objects.add(col_name)
+        return table_related_objects
+
+    def _get_snmp_value(self, pysnmp_type: type, initial_value: Any, type_name: str = '', symbol_name: str = '') -> Any:
+        """Return a pysnmp value for a given type and initial value, with sensible defaults."""
+        # Handle special types that need specific default values
+        if initial_value is None or initial_value == 0 or initial_value == '':
+            # TruthValue: 1=true, 2=false (never 0)
+            if type_name == 'TruthValue':
+                return Integer32(2)  # Default to false
+            # DateAndTime: 8 or 11 byte OctetString with specific format
+            # Format: year(2 bytes), month, day, hour, min, sec, decisec, [direction, offset_hour, offset_min]
+            if type_name == 'DateAndTime':
+                # Default to 2000-01-01 00:00:00.0 (8 bytes)
+                # year=2000 (0x07D0), month=1, day=1, hour=0, min=0, sec=0, decisec=0
+                return OctetString(hexValue='07D0010100000000')
+            # OwnerString: DisplayString but may have specific constraints
+            if type_name == 'OwnerString':
+                return OctetString('admin')
+            # TestAndIncr: Integer32 with special semantics, but still needs a valid integer value
+            if type_name == 'TestAndIncr':
+                return Integer32(0)
+            # ProductID: ObjectIdentifier for product identification
+            if type_name == 'ProductID':
+                return ObjectIdentifier('0.0')  # zeroDotZero
+            # InternationalDisplayString: OctetString for international text
+            if type_name == 'InternationalDisplayString':
+                return OctetString('unset')
+            # IANAifType: Interface type enum - use ethernetCsmacd(6) for eth0
+            if type_name == 'IANAifType':
+                return Integer32(6)  # ethernetCsmacd
+            # Specific enum fields that need valid values
+            if symbol_name in ('ifAdminStatus', 'ifOperStatus'):
+                return Integer32(2)  # down(2)
+            if symbol_name == 'ifType':
+                return Integer32(6)  # ethernetCsmacd(6)
+
+        if initial_value is not None and initial_value != '':
+            if pysnmp_type in (Integer32, Integer, Counter32, Counter64, Gauge32, Unsigned32, TimeTicks):
+                # Handle empty string for integer types
+                if isinstance(initial_value, str) and initial_value.strip() == '':
+                    return pysnmp_type(0)
+                return pysnmp_type(initial_value)
+            if pysnmp_type is OctetString:
+                return OctetString(str(initial_value))
+            if pysnmp_type is IpAddress:
+                return IpAddress(str(initial_value) or '0.0.0.0')
+            if pysnmp_type is ObjectIdentifier:
+                # Handle ObjectIdentifier - convert string like "0.0" to tuple
+                if isinstance(initial_value, str):
+                    return ObjectIdentifier(initial_value)
+                return pysnmp_type(initial_value)
+            return pysnmp_type(initial_value)
+        # Defaults
+        default_map = {
+            OctetString: OctetString(''),
+            IpAddress: IpAddress('0.0.0.0'),
+            TimeTicks: TimeTicks(0),
+            ObjectIdentifier: ObjectIdentifier('0.0'),  # Default OID for null values
+        }
+        if pysnmp_type in (Integer32, Integer, Counter32, Counter64, Gauge32, Unsigned32):
+            return pysnmp_type(0)
+        return default_map.get(pysnmp_type, pysnmp_type())
+
+    def _register_scalars(self, mib: str, mib_json: dict[str, Any], table_related_objects: set[str], type_map: dict[str, Any]) -> None:
+        """Register scalar objects for a MIB, skipping table-related objects."""
+        scalar_symbols: list[Any] = []
+        registered_count = 0
+        for name, info in mib_json.items():
+            if name in table_related_objects:
+                continue
+            oid_value = cast(List[int], info['oid']) if isinstance(info['oid'], list) else []
+            if (info['type'] in type_map and
+                isinstance(info['oid'], list) and
+                len(oid_value) > 0 and
+                info.get('access') not in ['not-accessible', 'accessible-for-notify']):
+                pysnmp_type = type_map[info['type']]
+                scalar_oid = tuple(oid_value)
+                dynamic_func = info.get('dynamic_function')
+                if dynamic_func == 'uptime':
+                    value = TimeTicks(int((time.time() - self.start_time) * 100))
+                else:
+                    value_str = info.get('current') if 'current' in info else info.get('initial')
+                    value = self._get_snmp_value(pysnmp_type, value_str, info['type'], name)
+                scalar_symbols.append(self.MibScalar(scalar_oid, pysnmp_type()))
+                scalar_symbols.append(self.MibScalarInstance(scalar_oid, (0,), value))
+                registered_count += 1
+        if scalar_symbols:
+            export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
+            self.mibBuilder.export_symbols(export_name, *scalar_symbols)
+            print(f"Loaded {mib}: {registered_count} objects")
 
     def _register_tables(self, mib: str, mib_json: dict[str, Any], type_map: dict[str, Any]) -> None:
         """Detect and register all tables in the MIB with a single row instance."""
@@ -438,8 +596,12 @@ class SNMPAgent:
         if not index_col_name:
             index_col_name = list(columns.keys())[0]
 
-        # Create table entry with index
-        entry_obj = self.MibTableRow(entry_oid).setIndexNames((0, export_name, index_col_name))
+        # Always instantiate at least one row for every table, using correct index type
+        try:
+            entry_obj = self.MibTableRow(entry_oid).setIndexNames((0, export_name, index_col_name))
+        except Exception as e:
+            print(f"Warning: Could not register table {table_name}: could not create entry object: {e}")
+            return
 
         # Create column objects
         column_objects = {}
@@ -451,68 +613,100 @@ class SNMPAgent:
         for col_name, col_info in columns.items():
             col_oid = tuple(col_info['oid'])
             col_type_name = col_info['type']
-
-            # Map type to pysnmp type, use Integer as fallback
             pysnmp_type = type_map.get(col_type_name, Integer32)
 
-            col_obj = self.MibTableColumn(col_oid, pysnmp_type())
+            # Try to import the actual type from compiled MIBs (for TextualConventions like PhysAddress)
+            # This preserves attributes like fixed_length that pysnmp may need
+            type_instance = None
+            try:
+                # Try importing from SNMPv2-TC first (common textual conventions)
+                imported_type = self.mibBuilder.import_symbols('SNMPv2-TC', col_type_name)
+                if imported_type and len(imported_type) > 0:
+                    type_instance = imported_type[0]()
+            except Exception:
+                pass
+
+            # If not found, use the mapped base type
+            if type_instance is None:
+                type_instance = pysnmp_type()
+
+            col_obj = self.MibTableColumn(col_oid, type_instance)
             column_objects[col_name] = col_obj
             symbols_to_export[col_name] = col_obj
 
         # Export all table symbols
         self.mibBuilder.export_symbols(export_name, **symbols_to_export)
 
-        # Create a single row instance (index = 1)
+        # Create a single row instance
+        # Determine the index type from the index column
+        index_col_type = columns[index_col_name]['type']
+        index_pysnmp_type = type_map.get(index_col_type, Integer32)
+
+        # Determine the appropriate index value based on the type
+        # For integer-like types, use 1; for string-like types, use a simple value
+        index_value: Any
+        if index_pysnmp_type in (Integer32, Integer, Unsigned32, Gauge32, Counter32, Counter64, TimeTicks):
+            index_value = 1
+        elif index_col_type == 'PhysAddress':
+            # PhysAddress expects hex bytes (MAC address format)
+            index_value = "00:11:22:33:44:55"
+        elif index_pysnmp_type is OctetString:
+            # For OctetString indexes, use a simple string value
+            index_value = "eth0"
+        elif index_pysnmp_type is IpAddress:
+            index_value = "127.0.0.1"
+        else:
+            # Default to integer for unknown types
+            index_value = 1
+
         snmpContext = context.SnmpContext(self.snmpEngine)
         mibInstrumentation = snmpContext.get_mib_instrum()
+        try:
+            entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
+            rowInstanceId = entry_imported.getInstIdFromIndices(index_value)
 
-        # Import the entry object
-        entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
+            # Populate columns with default values
+            write_vars = []
+            for col_name, col_info in columns.items():
+                col_imported = self.mibBuilder.import_symbols(export_name, col_name)[0]
+                col_type_name = col_info['type']
+                pysnmp_type = type_map.get(col_type_name, Integer32)
+                initial_value = col_info.get('initial')
+                try:
+                    value = self._get_snmp_value(pysnmp_type, initial_value, col_type_name, col_name)
+                    write_vars.append((col_imported.name + rowInstanceId, value))
+                except Exception as e:
+                    print(f"Debug: Error creating value for {col_name} (type={col_type_name}, pysnmp_type={pysnmp_type}, initial={repr(initial_value)}): {e}")
+                    raise
 
-        # Create row instance with index 1
-        rowInstanceId = entry_imported.getInstIdFromIndices(1)
+            if write_vars:
+                # Try writing all variables at once first
+                try:
+                    mibInstrumentation.write_variables(*write_vars)
+                    print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
+                except Exception as e:
+                    # If batch write fails, try one by one to identify the problematic column
+                    col_names = list(columns.keys())
+                    failed_columns = []
+                    success_count = 0
+                    for idx, (oid, value) in enumerate(write_vars):
+                        col_name = col_names[idx] if idx < len(col_names) else f"column_{idx}"
+                        col_type = columns[col_name]['type'] if col_name in columns else "unknown"
+                        try:
+                            mibInstrumentation.write_variables((oid, value))
+                            success_count += 1
+                        except Exception as col_error:
+                            failed_columns.append(f"{col_name} ({col_type})")
 
-        # Populate columns with default values
-        write_vars = []
-        for col_name, col_info in columns.items():
-            col_imported = self.mibBuilder.import_symbols(export_name, col_name)[0]
-            col_type_name = col_info['type']
-            pysnmp_type = type_map.get(col_type_name, Integer32)
-
-            # Get initial value from behaviour JSON
-            initial_value = col_info.get('initial')
-            if initial_value is not None:
-                if pysnmp_type in (Integer32, Integer, Counter32, Counter64, Gauge32, Unsigned32):
-                    value = pysnmp_type(initial_value)
-                elif pysnmp_type is OctetString:
-                    value = OctetString(str(initial_value))
-                elif pysnmp_type is IpAddress:
-                    value = IpAddress(str(initial_value) if initial_value else '0.0.0.0')
-                elif pysnmp_type is TimeTicks:
-                    value = TimeTicks(initial_value)
-                else:
-                    value = pysnmp_type(initial_value)
-            else:
-                # Use type-appropriate defaults
-                if pysnmp_type is OctetString:
-                    value = OctetString('')
-                elif pysnmp_type in (Integer32, Integer):
-                    value = pysnmp_type(0)
-                elif pysnmp_type in (Counter32, Counter64, Gauge32, Unsigned32):
-                    value = pysnmp_type(0)
-                elif pysnmp_type is IpAddress:
-                    value = IpAddress('0.0.0.0')
-                elif pysnmp_type is TimeTicks:
-                    value = TimeTicks(0)
-                else:
-                    value = pysnmp_type()
-
-            write_vars.append((col_imported.name + rowInstanceId, value))
-
-        # Write all column values for this row
-        if write_vars:
-            mibInstrumentation.write_variables(*write_vars)
-            print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
+                    # If all columns succeeded individually, consider it a success
+                    if success_count == len(write_vars):
+                        print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
+                    elif failed_columns:
+                        print(f"Warning: Could not register table {table_name}: Failed columns: {', '.join(failed_columns)}")
+                    else:
+                        raise e
+        except Exception as e:
+            print(f"Warning: Could not register table {table_name}: {e}")
 
     def run(self) -> None:
         """Run the SNMP agent (blocking)."""
