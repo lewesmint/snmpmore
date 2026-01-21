@@ -11,7 +11,7 @@ import logging
 import os
 import yaml
 import json
-from typing import Any, Tuple, List, cast
+from typing import Any, Tuple, List, cast, Optional
 from app.compiler import MibCompiler
 from app.generator import BehaviourGenerator
 from pysnmp.entity import engine, config
@@ -116,6 +116,9 @@ class SNMPAgent:
             'MibTableRow',
             'MibTableColumn'
         )
+
+        # Import RowStatus from SNMPv2-TC for proper table row handling
+        (self.RowStatus,) = self.mibBuilder.import_symbols('SNMPv2-TC', 'RowStatus')
 
         # Counter for dynamic scalar
         self.counter = 0
@@ -303,7 +306,7 @@ class SNMPAgent:
             if not os.path.exists(json_path):
                 try:
                     json_path = behaviour_gen.generate(compiled_py, mib)
-                    print(f"Behaviour JSON written to {json_path}")
+                    # Note: generate() already prints "Behaviour JSON written to" message
                 except Exception as e:
                     print(f"FATAL: Failed to generate behaviour JSON for {mib}: {e}")
                     import sys
@@ -393,7 +396,7 @@ class SNMPAgent:
             'TimeStamp': TimeTicks,
             'TestAndIncr': Integer32,
             'AutonomousType': ObjectIdentifier,
-            'RowStatus': Integer32,
+            'RowStatus': self.RowStatus,  # Use actual RowStatus from SNMPv2-TC
             'PhysAddress': OctetString,
             'OwnerString': OctetString,
             'DateAndTime': OctetString,
@@ -424,8 +427,29 @@ class SNMPAgent:
                             table_related_objects.add(col_name)
         return table_related_objects
 
-    def _get_snmp_value(self, pysnmp_type: type, initial_value: Any, type_name: str = '', symbol_name: str = '') -> Any:
+    def _get_pysnmp_type_from_info(self, type_name: str, type_info: Optional[dict[str, Any]], type_map: dict[str, Any]) -> type:
+        """Get the pysnmp type class from type_info or type_map."""
+        # If we have type_info with base_type, use that
+        if type_info and 'base_type' in type_info:
+            base_type_name = type_info['base_type']
+            if base_type_name in type_map:
+                return type_map[base_type_name]
+
+        # Fall back to type_map lookup
+        if type_name in type_map:
+            return type_map[type_name]
+
+        # Default fallback
+        return OctetString
+
+    def _get_snmp_value(self, pysnmp_type: type, initial_value: Any, type_name: str = '', symbol_name: str = '', type_info: Optional[dict[str, Any]] = None) -> Any:
         """Return a pysnmp value for a given type and initial value, with sensible defaults."""
+        # Use type_info if available to determine base type
+        if type_info:
+            base_type = type_info.get('base_type', type_name)
+        else:
+            base_type = type_name
+
         # Handle special types that need specific default values
         if initial_value is None or initial_value == 0 or initial_value == '':
             # TruthValue: 1=true, 2=false (never 0)
@@ -434,6 +458,10 @@ class SNMPAgent:
             # DateAndTime: 8 or 11 byte OctetString with specific format
             # Format: year(2 bytes), month, day, hour, min, sec, decisec, [direction, offset_hour, offset_min]
             if type_name == 'DateAndTime':
+                # Check if initial_value is already a hex string
+                if isinstance(initial_value, str) and len(initial_value) == 16:
+                    # Assume it's a hex string like '07D0010100000000'
+                    return OctetString(hexValue=initial_value)
                 # Default to 2000-01-01 00:00:00.0 (8 bytes)
                 # year=2000 (0x07D0), month=1, day=1, hour=0, min=0, sec=0, decisec=0
                 return OctetString(hexValue='07D0010100000000')
@@ -443,28 +471,23 @@ class SNMPAgent:
             # TestAndIncr: Integer32 with special semantics, but still needs a valid integer value
             if type_name == 'TestAndIncr':
                 return Integer32(0)
-            # ProductID: ObjectIdentifier for product identification
-            if type_name == 'ProductID':
-                return ObjectIdentifier('0.0')  # zeroDotZero
-            # InternationalDisplayString: OctetString for international text
-            if type_name == 'InternationalDisplayString':
-                return OctetString('unset')
-            # IANAifType: Interface type enum - use ethernetCsmacd(6) for eth0
-            if type_name == 'IANAifType':
-                return Integer32(6)  # ethernetCsmacd
-            # Specific enum fields that need valid values
-            if symbol_name in ('ifAdminStatus', 'ifOperStatus'):
-                return Integer32(2)  # down(2)
-            if symbol_name == 'ifType':
-                return Integer32(6)  # ethernetCsmacd(6)
+            # RowStatus: Use notInService(2) as safe default for read-only contexts
+            if type_name == 'RowStatus':
+                return self.RowStatus(2)  # notInService
 
         if initial_value is not None and initial_value != '':
+            # Handle RowStatus specially - use the actual RowStatus class
+            if type_name == 'RowStatus':
+                return self.RowStatus(int(initial_value))
             if pysnmp_type in (Integer32, Integer, Counter32, Counter64, Gauge32, Unsigned32, TimeTicks):
                 # Handle empty string for integer types
                 if isinstance(initial_value, str) and initial_value.strip() == '':
                     return pysnmp_type(0)
                 return pysnmp_type(initial_value)
             if pysnmp_type is OctetString:
+                # Check if this is a DateAndTime hex value
+                if type_name == 'DateAndTime' and isinstance(initial_value, str) and len(initial_value) == 16:
+                    return OctetString(hexValue=initial_value)
                 return OctetString(str(initial_value))
             if pysnmp_type is IpAddress:
                 return IpAddress(str(initial_value) or '0.0.0.0')
@@ -493,18 +516,19 @@ class SNMPAgent:
             if name in table_related_objects:
                 continue
             oid_value = cast(List[int], info['oid']) if isinstance(info['oid'], list) else []
-            if (info['type'] in type_map and
-                isinstance(info['oid'], list) and
+            type_info = info.get('type_info')
+            # Use type_info to get the correct pysnmp type, or fall back to type_map
+            pysnmp_type = self._get_pysnmp_type_from_info(info['type'], type_info, type_map)
+            if (isinstance(info['oid'], list) and
                 len(oid_value) > 0 and
                 info.get('access') not in ['not-accessible', 'accessible-for-notify']):
-                pysnmp_type = type_map[info['type']]
                 scalar_oid = tuple(oid_value)
                 dynamic_func = info.get('dynamic_function')
                 if dynamic_func == 'uptime':
                     value = TimeTicks(int((time.time() - self.start_time) * 100))
                 else:
                     value_str = info.get('current') if 'current' in info else info.get('initial')
-                    value = self._get_snmp_value(pysnmp_type, value_str, info['type'], name)
+                    value = self._get_snmp_value(pysnmp_type, value_str, info['type'], name, type_info)
                 scalar_symbols.append(self.MibScalar(scalar_oid, pysnmp_type()))
                 scalar_symbols.append(self.MibScalarInstance(scalar_oid, (0,), value))
                 registered_count += 1
@@ -640,7 +664,8 @@ class SNMPAgent:
         # Create a single row instance
         # Determine the index type from the index column
         index_col_type = columns[index_col_name]['type']
-        index_pysnmp_type = type_map.get(index_col_type, Integer32)
+        index_type_info = columns[index_col_name].get('type_info')
+        index_pysnmp_type = self._get_pysnmp_type_from_info(index_col_type, index_type_info, type_map)
 
         # Determine the appropriate index value based on the type
         # For integer-like types, use 1; for string-like types, use a simple value
@@ -655,6 +680,9 @@ class SNMPAgent:
             index_value = "eth0"
         elif index_pysnmp_type is IpAddress:
             index_value = "127.0.0.1"
+        elif index_pysnmp_type is ObjectIdentifier:
+            # For ObjectIdentifier indexes, use a simple OID
+            index_value = "1.3.6.1.1"
         else:
             # Default to integer for unknown types
             index_value = 1
@@ -667,17 +695,26 @@ class SNMPAgent:
 
             # Populate columns with default values
             write_vars = []
+            failed_columns = []
             for col_name, col_info in columns.items():
                 col_imported = self.mibBuilder.import_symbols(export_name, col_name)[0]
                 col_type_name = col_info['type']
-                pysnmp_type = type_map.get(col_type_name, Integer32)
+                type_info = col_info.get('type_info')
+                # Use type_info to get the correct pysnmp type
+                pysnmp_type = self._get_pysnmp_type_from_info(col_type_name, type_info, type_map)
                 initial_value = col_info.get('initial')
+
+                # For RowStatus, use createAndGo(4) to create a new active row
+                # (RFC 2579: cannot set active(1) directly on new row)
+                if col_type_name == 'RowStatus':
+                    initial_value = 4  # createAndGo
+
                 try:
-                    value = self._get_snmp_value(pysnmp_type, initial_value, col_type_name, col_name)
+                    value = self._get_snmp_value(pysnmp_type, initial_value, col_type_name, col_name, type_info)
                     write_vars.append((col_imported.name + rowInstanceId, value))
                 except Exception as e:
-                    print(f"Debug: Error creating value for {col_name} (type={col_type_name}, pysnmp_type={pysnmp_type}, initial={repr(initial_value)}): {e}")
-                    raise
+                    failed_columns.append(f"{col_name} ({col_type_name})")
+                    continue
 
             if write_vars:
                 # Try writing all variables at once first

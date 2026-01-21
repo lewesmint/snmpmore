@@ -76,27 +76,155 @@ class BehaviourGenerator:
             # Ensure getName is a method bound to the instance
             try:
                 oid = symbol_obj.getName()
-                syntax = symbol_obj.getSyntax().__class__.__name__
+                syntax_obj = symbol_obj.getSyntax()
+                syntax = syntax_obj.__class__.__name__
                 access = getattr(symbol_obj, 'getMaxAccess', lambda: 'unknown')()
             except TypeError:
                 continue
 
+            # Extract type metadata (base type, constraints, enums)
+            type_info = self._extract_type_info(syntax_obj, syntax)
+
             # Provide sensible default initial values based on type
-            initial_value = self._get_default_value(syntax, symbol_name_str)
+            initial_value = self._get_default_value_from_type_info(type_info, symbol_name_str)
             dynamic_func = self._get_dynamic_function(symbol_name_str)
 
             result[symbol_name_str] = {
                 'oid': oid,
                 'type': syntax,
+                'type_info': type_info,
                 'access': access,
                 'initial': initial_value,
                 'dynamic_function': dynamic_func
             }
         return result
 
-    def _get_default_value(self, syntax: str, symbol_name: str) -> Any:
-        """Get a sensible default value based on the type and symbol name."""
+    def _extract_type_info(self, syntax_obj: Any, syntax_name: str) -> Dict[str, Any]:
+        """Extract detailed type information from a syntax object.
+
+        Returns:
+            Dictionary with 'base_type', 'enums' (if applicable), 'constraints', etc.
+        """
+        from pysnmp.proto.rfc1902 import Integer32, Integer, OctetString, ObjectIdentifier, IpAddress, Counter32, Counter64, Gauge32, Unsigned32, TimeTicks
+
+        # Determine base type by checking the class hierarchy (MRO)
+        # For TextualConventions, we want the actual base SNMP type, not the TC name
+        base_type = syntax_name
+
+        # Get the class hierarchy
+        mro = type(syntax_obj).__mro__
+
+        # Look for the first base SNMP type in the hierarchy by checking class names
+        # We check by name because the classes might be from different imports
+        base_type_names = ['ObjectIdentifier', 'OctetString', 'Integer32', 'Integer', 'IpAddress', 'Counter32', 'Counter64', 'Gauge32', 'Unsigned32', 'TimeTicks']
+        for cls in mro:
+            cls_name = cls.__name__
+            if cls_name in base_type_names:
+                base_type = cls_name
+                break
+
+        type_info: Dict[str, Any] = {
+            'base_type': base_type,
+            'enums': None,
+            'constraints': None
+        }
+
+        # Extract named values (enumerations)
+        if hasattr(syntax_obj, 'namedValues') and syntax_obj.namedValues:
+            enums = {}
+            for name in syntax_obj.namedValues:
+                value = syntax_obj.namedValues[name]
+                enums[name] = value
+            if enums:
+                type_info['enums'] = enums
+
+        # Extract constraints
+        if hasattr(syntax_obj, 'subtypeSpec') and syntax_obj.subtypeSpec:
+            constraints = []
+            try:
+                # Try to get values attribute (for ConstraintsUnion)
+                if hasattr(syntax_obj.subtypeSpec, 'values'):
+                    for constraint in syntax_obj.subtypeSpec.values:
+                        constraint_info = str(constraint)
+                        constraints.append(constraint_info)
+                else:
+                    # For other constraint types, just convert to string
+                    constraints.append(str(syntax_obj.subtypeSpec))
+            except Exception:
+                # If we can't extract constraints, just skip them
+                pass
+            if constraints:
+                type_info['constraints'] = constraints
+
+        return type_info
+
+    def _get_default_value_from_type_info(self, type_info: Dict[str, Any], symbol_name: str) -> Any:
+        """Get a sensible default value based on type info and symbol name."""
         # Special cases for well-known system objects
+        if symbol_name == 'sysDescr':
+            return 'Simple Python SNMP Agent - Demo System'
+        elif symbol_name == 'sysObjectID':
+            return '1.3.6.1.4.1.99999'
+        elif symbol_name == 'sysContact':
+            return 'Admin <admin@example.com>'
+        elif symbol_name == 'sysName':
+            return 'my-pysnmp-agent'
+        elif symbol_name == 'sysLocation':
+            return 'Development Lab'
+        elif symbol_name == 'sysUpTime':
+            return None  # Dynamic, handled by uptime function
+        elif symbol_name == 'ifNumber':
+            return 1  # Match the number of interface rows we'll create
+
+        base_type = type_info.get('base_type', '')
+        enums = type_info.get('enums')
+
+        # If it has enums, use a sensible default enum value
+        if enums:
+            # Special cases for known enum fields
+            if symbol_name in ('ifAdminStatus', 'ifOperStatus'):
+                return 2  # down(2)
+            elif symbol_name == 'ifType':
+                return 6  # ethernetCsmacd(6)
+            elif symbol_name.endswith('Status') and 'notInService' in enums:
+                # RowStatus should be active(1) for existing rows
+                return 1
+            elif 'unknown' in enums:
+                return enums['unknown']
+            elif 'other' in enums:
+                return enums['other']
+            else:
+                # Return the first valid enum value (not 0 if possible)
+                for name, value in enums.items():
+                    if value != 0:
+                        return value
+                # If all are 0 or only one value, return it
+                return list(enums.values())[0] if enums else 0
+
+        # Type-based defaults
+        if base_type in ('DisplayString', 'OctetString'):
+            # Check if this is a DateAndTime type
+            if 'Date' in symbol_name or 'Time' in symbol_name:
+                # Return hex string for 2000-01-01 00:00:00.0
+                return '07D0010100000000'
+            return 'unset'
+        elif base_type == 'ObjectIdentifier':
+            return '0.0'
+        elif base_type in ('Integer32', 'Integer', 'Gauge32', 'Unsigned32'):
+            return 0
+        elif base_type in ('Counter32', 'Counter64'):
+            return 0
+        elif base_type == 'IpAddress':
+            return '0.0.0.0'
+        elif base_type == 'TimeTicks':
+            return 0
+        else:
+            return None
+
+    def _get_default_value(self, syntax: str, symbol_name: str) -> Any:
+        """Legacy method - kept for compatibility."""
+        # This is now handled by _get_default_value_from_type_info
+        # but kept as fallback
         if symbol_name == 'sysDescr':
             return 'Simple Python SNMP Agent - Demo System'
         elif symbol_name == 'sysObjectID':
