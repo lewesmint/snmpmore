@@ -66,8 +66,6 @@ class BehaviourGenerator:
         mib_symbols = mibBuilder.mibSymbols[mib_name]
 
         result: Dict[str, Any] = {}
-        table_entries: Dict[str, Any] = {}  # Track table entry objects for AUGMENTS detection
-
         from pysnmp.smi import instrum, exval, builder as smi_builder
         for symbol_name, symbol_obj in mib_symbols.items():
             symbol_name_str: str = str(cast(Any, symbol_name))
@@ -99,66 +97,7 @@ class BehaviourGenerator:
                 'initial': initial_value,
                 'dynamic_function': dynamic_func
             }
-
-            # Track table entries for AUGMENTS detection
-            if symbol_name_str.endswith('Entry') and hasattr(symbol_obj, 'getIndexNames'):
-                table_entries[symbol_name_str] = symbol_obj
-
-        # Second pass: detect AUGMENTS/inherited index for table entries
-        self._detect_inherited_indexes(result, table_entries, mib_name)
-
         return result
-
-    def _detect_inherited_indexes(self, result: Dict[str, Any],
-                                   table_entries: Dict[str, Any],
-                                   mib_name: str) -> None:
-        """Detect tables that inherit their index from another table (AUGMENTS pattern).
-
-        For each table entry, checks if any of its index columns are NOT part of the
-        table's own columns. If so, marks the entry with 'index_from' information.
-        """
-        for entry_name, entry_obj in table_entries.items():
-            try:
-                index_names = entry_obj.getIndexNames()
-                if not index_names:
-                    continue
-
-                # Get the table's OID to find its columns
-                entry_oid = tuple(entry_obj.getName())
-
-                # Find columns that belong to this table entry
-                # Columns have OIDs that are entry_oid + column_number
-                table_columns = set()
-                for sym_name, sym_info in result.items():
-                    sym_oid = tuple(sym_info['oid'])
-                    # Column belongs to entry if its OID starts with entry_oid
-                    if len(sym_oid) == len(entry_oid) + 1 and sym_oid[:len(entry_oid)] == entry_oid:
-                        table_columns.add(sym_name)
-
-                # Check if index columns are in the table's columns
-                inherited_indexes = []
-                for idx_info in index_names:
-                    # idx_info is (implied, mib_name, column_name)
-                    _, idx_mib, idx_col = idx_info
-                    if idx_col not in table_columns:
-                        # This index is inherited from another table
-                        inherited_indexes.append({
-                            'mib': idx_mib,
-                            'column': idx_col
-                        })
-
-                if inherited_indexes:
-                    # Mark this entry as having inherited index
-                    result[entry_name]['index_from'] = inherited_indexes
-                    # Also store the raw index names for reference
-                    result[entry_name]['index_names'] = [
-                        {'implied': idx[0], 'mib': idx[1], 'column': idx[2]}
-                        for idx in index_names
-                    ]
-
-            except Exception as e:
-                # If detection fails, just skip - the hardcoded list is a fallback
-                pass
 
     def _extract_type_info(self, syntax_obj: Any, syntax_name: str) -> Dict[str, Any]:
         """Extract detailed type information from a syntax object.
@@ -234,14 +173,8 @@ class BehaviourGenerator:
             return 'Development Lab'
         elif symbol_name == 'sysUpTime':
             return None  # Dynamic, handled by uptime function
-        elif symbol_name == 'sysServices':
-            # Bitmask indicating supported layers: 72 = physical(1) + internet(4) + applications(64)
-            return 72
         elif symbol_name == 'ifNumber':
             return 1  # Match the number of interface rows we'll create
-        elif symbol_name == 'ifPhysAddress':
-            # Empty MAC address is better than "unset" which decodes to garbage hex
-            return ''
 
         base_type = type_info.get('base_type', '')
         enums = type_info.get('enums')

@@ -625,66 +625,30 @@ class SNMPAgent:
             pass
 
         # Create table and entry objects
-        # IMPORTANT: Must set maxAccess on table and row for SET operations to work
-        # (per pysnmp documentation and Stack Overflow examples)
-        table_obj = self.MibTable(table_oid).setMaxAccess('readcreate')
+        table_obj = self.MibTable(table_oid)
 
         # Find the index column (usually the first column or one with "Index" in name)
         # For AUGMENTS tables (like ifXTable), they inherit the index from the base table
         index_col_name = None
         index_is_inherited = False
-        entry_info = table_data['entry']
 
-        # Check if this table entry has inherited index (detected by generator)
-        if 'index_from' in entry_info and entry_info['index_from']:
-            index_is_inherited = True
-            # For inherited index tables, prefer an Integer32-typed column for setIndexNames
-            # to avoid type mismatch issues (pysnmp uses this for index encoding)
-            # The actual index is simple integer (1,) so we need an integer-compatible column
-            index_col_name = None
-            for col_name, col_info in columns.items():
-                col_base_type = col_info.get('type_info', {}).get('base_type', col_info['type'])
-                if col_base_type in ('Integer32', 'Integer', 'Counter32', 'Gauge32', 'Unsigned32'):
-                    index_col_name = col_name
-                    break
-            # Fallback to first column if no integer column found
-            if not index_col_name:
-                index_col_name = list(columns.keys())[0]
-        else:
-            # Look for ALL index columns (not-accessible) in table's columns
-            local_index_cols = []
-            for col_name, col_info in columns.items():
-                if col_info.get('access') == 'not-accessible' or 'Index' in col_name:
-                    local_index_cols.append(col_name)
+        for col_name, col_info in columns.items():
+            if 'Index' in col_name or col_info.get('access') == 'not-accessible':
+                index_col_name = col_name
+                break
 
-            if local_index_cols:
-                index_col_name = local_index_cols[0]
-            else:
-                index_col_name = list(columns.keys())[0]
-                local_index_cols = [index_col_name]
+        # If no index found, check if this is an AUGMENTS table
+        # Common pattern: ifXTable augments ifEntry (uses ifIndex from ifTable)
+        # These tables don't have their own index column - they inherit it
+        augments_tables = {'ifXTable', 'ifTestTable'}
+        if not index_col_name:
+            if table_name in augments_tables:
+                index_is_inherited = True  # Will use integer index
+            index_col_name = list(columns.keys())[0]
 
-        # Always instantiate at least one row for every table
-        # For multi-column indexes, set all index columns in setIndexNames
+        # Always instantiate at least one row for every table, using correct index type
         try:
-            if index_is_inherited and 'index_names' in entry_info and len(entry_info['index_names']) > 1:
-                # Multi-column index with inherited first column
-                index_specs = []
-                for idx_info in entry_info['index_names']:
-                    idx_col = idx_info['column']
-                    implied = idx_info.get('implied', 0)
-                    # If index column is in our table, use our export name; otherwise use substitute
-                    if idx_col in columns:
-                        index_specs.append((implied, export_name, idx_col))
-                    else:
-                        # Reference column from another table - use our first integer column instead
-                        index_specs.append((implied, export_name, index_col_name))
-                entry_obj = self.MibTableRow(entry_oid).setMaxAccess('readcreate').setIndexNames(*index_specs)
-            elif not index_is_inherited and len(local_index_cols) > 1:
-                # Multi-column index with all columns local to this table
-                index_specs = [(0, export_name, col) for col in local_index_cols]
-                entry_obj = self.MibTableRow(entry_oid).setMaxAccess('readcreate').setIndexNames(*index_specs)
-            else:
-                entry_obj = self.MibTableRow(entry_oid).setMaxAccess('readcreate').setIndexNames((0, export_name, index_col_name))
+            entry_obj = self.MibTableRow(entry_oid).setIndexNames((0, export_name, index_col_name))
         except Exception as e:
             print(f"Warning: Could not register table {table_name}: could not create entry object: {e}")
             return
@@ -717,19 +681,6 @@ class SNMPAgent:
                 type_instance = pysnmp_type()
 
             col_obj = self.MibTableColumn(col_oid, type_instance)
-
-            # Set MAX-ACCESS based on behaviour JSON access field
-            # This is required for SET operations to work on read-write columns
-            access = col_info.get('access', 'read-only')
-            if access == 'read-write':
-                col_obj.setMaxAccess('readwrite')
-            elif access == 'read-create':
-                col_obj.setMaxAccess('readcreate')
-            elif access == 'not-accessible':
-                col_obj.setMaxAccess('noaccess')
-            else:
-                col_obj.setMaxAccess('readonly')
-
             column_objects[col_name] = col_obj
             symbols_to_export[col_name] = col_obj
 
@@ -771,30 +722,10 @@ class SNMPAgent:
         try:
             entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
 
-            # Construct row instance ID based on index type
+            # For AUGMENTS tables, construct row instance ID directly as simple integer tuple
+            # This avoids issues with getInstIdFromIndices() using wrong column type for encoding
             if index_is_inherited:
-                # AUGMENTS tables - construct row instance ID directly
-                index_names = entry_info.get('index_names', [])
-                if len(index_names) > 1:
-                    # Multi-column index - construct appropriate tuple
-                    rowInstanceId: Tuple[int, ...] = (1,)  # Start with inherited integer index
-                    for idx_info in index_names[1:]:
-                        idx_col = idx_info['column']
-                        if idx_col in columns:
-                            idx_col_type = columns[idx_col].get('type', '')
-                            idx_base_type = columns[idx_col].get('type_info', {}).get('base_type', idx_col_type)
-                            if idx_base_type == 'OctetString' or idx_col_type == 'PhysAddress':
-                                rowInstanceId = rowInstanceId + (6, 0, 17, 34, 51, 68, 85)
-                            else:
-                                rowInstanceId = rowInstanceId + (1,)
-                        else:
-                            rowInstanceId = rowInstanceId + (1,)
-                else:
-                    rowInstanceId = (index_value,)  # Simple single integer index tuple
-            elif len(local_index_cols) > 1:
-                # Non-inherited multi-column index (e.g., ifStackTable)
-                # Construct tuple with values for each index column
-                rowInstanceId = tuple(1 for _ in local_index_cols)  # All integers = 1
+                rowInstanceId = (index_value,)  # Simple integer index tuple
             else:
                 rowInstanceId = entry_imported.getInstIdFromIndices(index_value)
 
@@ -802,10 +733,6 @@ class SNMPAgent:
             write_vars = []
             failed_columns = []
             for col_name, col_info in columns.items():
-                # Skip not-accessible columns (index columns) - they cannot be written to
-                if col_info.get('access') == 'not-accessible':
-                    continue
-
                 col_imported = self.mibBuilder.import_symbols(export_name, col_name)[0]
                 col_type_name = col_info['type']
                 type_info = col_info.get('type_info')
