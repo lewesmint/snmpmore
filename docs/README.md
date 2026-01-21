@@ -410,11 +410,11 @@ They are the output of the `mib_to_json.py` script, which extracts metadata from
 
 ```bash
 # Compile your MIB first (if not already done)
-python compile_mib.py data/mibs/MY-AGENT-MIB.mib
+python compile_mib.py data/mibs/CISCO-ALARM-MIB.my
 
 # Generate the behaviour JSON
-python mib_to_json.py compiled-mibs/MY-AGENT-MIB.py MY-AGENT-MIB
-# Output: mock-behaviour/MY-AGENT-MIB_behaviour.json
+python mib_to_json.py compiled-mibs/CISCO-ALARM-MIB.py CISCO-ALARM-MIB.my
+# Output: mock-behaviour/CISCO-ALARM-MIB_behaviour.json
 ```
 
 #### Directory Structure
@@ -425,7 +425,7 @@ snmpmore/
 ├── compiled-mibs/          # Compiled Python MIB modules (.py)
 └── mock-behaviour/          # Behaviour definitions (JSON)
     ├── README.md           # Detailed documentation
-    └── MY-AGENT-MIB_behaviour.json
+    └── CISCO-ALARM-MIB_behaviour.json
 ```
 
 See `mock-behaviour/README.md` for detailed information about the behaviour file format and customization options.

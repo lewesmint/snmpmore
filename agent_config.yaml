@@ -2,11 +2,13 @@
 # List the MIBs to load (without extension)
 # Example:
 # mibs:
-#   - MY-AGENT-MIB
-#   - ANOTHER-MIB
+# - SNMPv2-MIB  # Standard system group (sysDescr, sysContact, etc.)
+# - IF-MIB
+# - HOST-RESOURCES-MIB
+# - HOST-RESOURCES-TYPES
+# - CISCO-ALARM-MIB
 
 mibs:
-  # - MY-AGENT-MIB
   - SNMPv2-MIB  # Standard system group (sysDescr, sysContact, etc.)
   - IF-MIB
   - HOST-RESOURCES-MIB

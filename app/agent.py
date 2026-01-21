@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-SNMP agent using pysnmp that exposes scalars and tables as defined in MY-AGENT-MIB.
-Listens on UDP port 11161 (non-privileged) and responds to SNMP queries.
+SNMP Agent that serves enterprise MIB data.
 """
 
 import threading
@@ -86,6 +85,10 @@ class SNMPAgent:
                     return
 
         print(f"Warning: Could not find OID {oid} in any loaded MIB to persist")
+
+    def _load_config(self) -> None:
+        """Stub for test patching."""
+        pass
 
     def __init__(self, host: str = '127.0.0.1', port: int = 161, config_path: str = 'agent_config.yaml') -> None:
         """Initialize the SNMP agent with config file support.
@@ -606,16 +609,15 @@ class SNMPAgent:
             except Exception as e:
                 print(f"Warning: Could not register table {table_name}: {e}")
 
-    def _register_single_table(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
-        """Register a single table with one row instance."""
+
+    def _basic_register_single_table(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
+        """Legacy: Register a single table with one row instance (no multi-column index support)."""
+        # ...existing code from the original _register_single_table...
         table_oid = tuple(table_data['table']['oid'])
         entry_oid = tuple(table_data['entry']['oid'])
         columns = table_data['columns']
         prefix = table_data['prefix']
-
         export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
-
-        # Check if table is already registered
         try:
             existing = self.mibBuilder.import_symbols(export_name, table_name)
             if existing:
@@ -623,135 +625,84 @@ class SNMPAgent:
         except Exception as e:
             if "already exported" in str(e):
                 raise
-            # Symbol doesn't exist, which is what we want
             pass
-
-        # Create table and entry objects
         table_obj = self.MibTable(table_oid)
-
-        # Find the index column (usually the first column or one with "Index" in name)
-        # For AUGMENTS tables (like ifXTable), they inherit the index from the base table
         index_col_name = None
         index_is_inherited = False
         entry_info = table_data['entry']
-
-        # Check if this is an AUGMENTS table (detected by generator)
-        # The generator marks tables with 'index_from' when their index columns are inherited
         if 'index_from' in entry_info and entry_info['index_from']:
             index_is_inherited = True
-
-            # Check for additional local index columns (not-accessible columns)
-            # Tables like ifRcvAddressTable have both inherited index AND local index columns
-            # These multi-column indexes are complex - skip them for now
             local_index_cols = [c for c, i in columns.items() if i.get('access') == 'not-accessible']
             if local_index_cols:
                 print(f"Warning: Skipping table {table_name}: has complex multi-column index (inherited + local)")
                 return
-
-            # For inherited index tables, prefer an Integer32-typed column for setIndexNames
-            # to avoid type mismatch issues (pysnmp uses the column type for index encoding)
-            # The actual index is simple integer (1,) so we need an integer-compatible column
             for col_name, col_info in columns.items():
                 col_base_type = col_info.get('type_info', {}).get('base_type', col_info['type'])
                 if col_base_type in ('Integer32', 'Integer', 'Counter32', 'Gauge32', 'Unsigned32'):
                     index_col_name = col_name
                     break
-            # Fallback to first column if no integer column found
             if not index_col_name:
                 index_col_name = list(columns.keys())[0]
         else:
-            # Non-inherited tables: look for index column by name or access
             for col_name, col_info in columns.items():
                 if 'Index' in col_name or col_info.get('access') == 'not-accessible':
                     index_col_name = col_name
                     break
             if not index_col_name:
                 index_col_name = list(columns.keys())[0]
-
-        # Always instantiate at least one row for every table, using correct index type
         try:
             entry_obj = self.MibTableRow(entry_oid).setIndexNames((0, export_name, index_col_name))
         except Exception as e:
             print(f"Warning: Could not register table {table_name}: could not create entry object: {e}")
             return
-
-        # Create column objects
         column_objects = {}
         symbols_to_export = {
             table_name: table_obj,
             f"{prefix}Entry": entry_obj
         }
-
         for col_name, col_info in columns.items():
             col_oid = tuple(col_info['oid'])
             col_type_name = col_info['type']
             pysnmp_type = type_map.get(col_type_name, Integer32)
-
-            # Try to import the actual type from compiled MIBs (for TextualConventions like PhysAddress)
-            # This preserves attributes like fixed_length that pysnmp may need
             type_instance = None
             try:
-                # Try importing from SNMPv2-TC first (common textual conventions)
                 imported_type = self.mibBuilder.import_symbols('SNMPv2-TC', col_type_name)
                 if imported_type and len(imported_type) > 0:
                     type_instance = imported_type[0]()
             except Exception:
                 pass
-
-            # If not found, use the mapped base type
             if type_instance is None:
                 type_instance = pysnmp_type()
-
             col_obj = self.MibTableColumn(col_oid, type_instance)
             column_objects[col_name] = col_obj
             symbols_to_export[col_name] = col_obj
-
-        # Export all table symbols
         self.mibBuilder.export_symbols(export_name, **symbols_to_export)
-
-        # Create a single row instance
-        # Determine the index type from the index column
         index_col_type = columns[index_col_name]['type']
         index_type_info = columns[index_col_name].get('type_info')
         index_pysnmp_type = self._get_pysnmp_type_from_info(index_col_type, index_type_info, type_map)
-
-        # Determine the appropriate index value based on the type
-        # For integer-like types, use 1; for string-like types, use a simple value
-        # For inherited indexes (AUGMENTS tables), always use integer
         index_value: Any
         if index_is_inherited:
-            # AUGMENTS tables inherit integer index from base table
             index_value = 1
         elif index_pysnmp_type in (Integer32, Integer, Unsigned32, Gauge32, Counter32, Counter64, TimeTicks):
             index_value = 1
         elif index_col_type == 'PhysAddress':
-            # PhysAddress expects hex bytes (MAC address format)
             index_value = "00:11:22:33:44:55"
         elif index_pysnmp_type is OctetString:
-            # For OctetString indexes, use a simple string value
             index_value = "eth0"
         elif index_pysnmp_type is IpAddress:
             index_value = "127.0.0.1"
         elif index_pysnmp_type is ObjectIdentifier:
-            # For ObjectIdentifier indexes, use a simple OID
             index_value = "1.3.6.1.1"
         else:
-            # Default to integer for unknown types
             index_value = 1
-
         snmpContext = context.SnmpContext(self.snmpEngine)
         mibInstrumentation = snmpContext.get_mib_instrum()
         try:
             entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
-
-            # For AUGMENTS tables, construct row instance ID directly as simple integer tuple
-            # This avoids issues with getInstIdFromIndices() using wrong column type for encoding
             if index_is_inherited:
-                rowInstanceId = (index_value,)  # Simple integer index tuple
+                rowInstanceId = (index_value,)
             else:
                 rowInstanceId = entry_imported.getInstIdFromIndices(index_value)
-
-            # Populate columns with default values
             write_vars = []
             failed_columns = []
             for col_name, col_info in columns.items():
@@ -760,27 +711,19 @@ class SNMPAgent:
                 type_info = col_info.get('type_info')
                 pysnmp_type = self._get_pysnmp_type_from_info(col_type_name, type_info, type_map)
                 initial_value = col_info.get('initial')
-
-                # For RowStatus, use createAndGo(4) to create a new active row
-                # (RFC 2579: cannot set active(1) directly on new row)
                 if col_type_name == 'RowStatus':
-                    initial_value = 4  # createAndGo
-
+                    initial_value = 4
                 try:
                     value = self._get_snmp_value(pysnmp_type, initial_value, col_type_name, col_name, type_info)
                     write_vars.append((col_imported.name + rowInstanceId, value))
                 except Exception as e:
                     failed_columns.append(f"{col_name} ({col_type_name})")
                     continue
-
             if write_vars:
-                # Try batch write first (most efficient)
                 try:
                     mibInstrumentation.write_variables(*write_vars)
                     print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
                 except Exception as e:
-                    # Batch write fails for tables with TestAndIncr columns (special locking semantics)
-                    # Individual writes handle this correctly - see docs/SNMP_ROW_CREATION_AND_SET_SEMANTICS.md
                     col_names = list(columns.keys())
                     failed_columns = []
                     success_count = 0
@@ -792,7 +735,144 @@ class SNMPAgent:
                             success_count += 1
                         except Exception as col_error:
                             failed_columns.append(f"{col_name} ({col_type})")
+                    if success_count == len(write_vars):
+                        print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
+                    elif failed_columns:
+                        print(f"Warning: Could not register table {table_name}: Failed columns: {', '.join(failed_columns)}")
+                    else:
+                        raise e
+        except Exception as e:
+            print(f"Warning: Could not register table {table_name}: {e}")
 
+    def _register_single_table(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
+        """Register a single table with support for multi-column (inherited + local) indexes."""
+        table_oid = tuple(table_data['table']['oid'])
+        entry_oid = tuple(table_data['entry']['oid'])
+        columns = table_data['columns']
+        prefix = table_data['prefix']
+        export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
+        try:
+            existing = self.mibBuilder.import_symbols(export_name, table_name)
+            if existing:
+                raise Exception(f"Symbol {table_name} already exported at {export_name}")
+        except Exception as e:
+            if "already exported" in str(e):
+                raise
+            pass
+        table_obj = self.MibTable(table_oid)
+        entry_info = table_data['entry']
+        # Determine index columns: inherited (from AUGMENTS) and local (not-accessible columns)
+        index_from = entry_info.get('index_from')
+        local_index_cols = [c for c, i in columns.items() if i.get('access') == 'not-accessible']
+        index_col_names = []
+        # If AUGMENTS, get inherited index columns from base table
+        if index_from:
+            # index_from is a list of (mib, entry, column) tuples or similar
+            if isinstance(index_from, list):
+                for idx in index_from:
+                    if isinstance(idx, (list, tuple)) and len(idx) == 3:
+                        # (mib, entry, column)
+                        index_col_names.append(idx[2])
+            # Add local index columns
+            index_col_names.extend(local_index_cols)
+        else:
+            # No AUGMENTS: use not-accessible columns or fallback to first column
+            if local_index_cols:
+                index_col_names.extend(local_index_cols)
+            else:
+                index_col_names.append(list(columns.keys())[0])
+        # Create entry object with all index columns
+        try:
+            setIndexNames_args = []
+            for col_name in index_col_names:
+                setIndexNames_args.append((0, export_name, col_name))
+            entry_obj = self.MibTableRow(entry_oid).setIndexNames(*setIndexNames_args)
+        except Exception as e:
+            print(f"Warning: Could not register table {table_name}: could not create entry object: {e}")
+            return
+        column_objects = {}
+        symbols_to_export = {
+            table_name: table_obj,
+            f"{prefix}Entry": entry_obj
+        }
+        for col_name, col_info in columns.items():
+            col_oid = tuple(col_info['oid'])
+            col_type_name = col_info['type']
+            pysnmp_type = type_map.get(col_type_name, Integer32)
+            type_instance = None
+            try:
+                imported_type = self.mibBuilder.import_symbols('SNMPv2-TC', col_type_name)
+                if imported_type and len(imported_type) > 0:
+                    type_instance = imported_type[0]()
+            except Exception:
+                pass
+            if type_instance is None:
+                type_instance = pysnmp_type()
+            col_obj = self.MibTableColumn(col_oid, type_instance)
+            column_objects[col_name] = col_obj
+            symbols_to_export[col_name] = col_obj
+        self.mibBuilder.export_symbols(export_name, **symbols_to_export)
+        # Build index values for row instance
+        index_values: list[Any] = []
+        for col_name in index_col_names:
+            col_info = columns.get(col_name)
+            if not col_info:
+                # Inherited index: try to use a default integer value
+                index_values.append(1)
+                continue
+            col_type_name = col_info['type']
+            type_info = col_info.get('type_info')
+            pysnmp_type = self._get_pysnmp_type_from_info(col_type_name, type_info, type_map)
+            if pysnmp_type in (Integer32, Integer, Unsigned32, Gauge32, Counter32, Counter64, TimeTicks):
+                index_values.append(1)
+            elif col_type_name == 'PhysAddress':
+                # Use a string MAC address for SNMP index (mypy compatible)
+                index_values.append("00:11:22:33:44:55")
+            elif pysnmp_type is OctetString:
+                index_values.append("eth0")
+            elif pysnmp_type is IpAddress:
+                index_values.append("127.0.0.1")
+            elif pysnmp_type is ObjectIdentifier:
+                index_values.append("1.3.6.1.1")
+            else:
+                index_values.append(1)
+        snmpContext = context.SnmpContext(self.snmpEngine)
+        mibInstrumentation = snmpContext.get_mib_instrum()
+        try:
+            entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
+            rowInstanceId = entry_imported.getInstIdFromIndices(*index_values)
+            write_vars = []
+            failed_columns = []
+            for col_name, col_info in columns.items():
+                col_imported = self.mibBuilder.import_symbols(export_name, col_name)[0]
+                col_type_name = col_info['type']
+                type_info = col_info.get('type_info')
+                pysnmp_type = self._get_pysnmp_type_from_info(col_type_name, type_info, type_map)
+                initial_value = col_info.get('initial')
+                if col_type_name == 'RowStatus':
+                    initial_value = 4
+                try:
+                    value = self._get_snmp_value(pysnmp_type, initial_value, col_type_name, col_name, type_info)
+                    write_vars.append((col_imported.name + rowInstanceId, value))
+                except Exception as e:
+                    failed_columns.append(f"{col_name} ({col_type_name})")
+                    continue
+            if write_vars:
+                try:
+                    mibInstrumentation.write_variables(*write_vars)
+                    print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
+                except Exception as e:
+                    col_names = list(columns.keys())
+                    failed_columns = []
+                    success_count = 0
+                    for idx, (oid, value) in enumerate(write_vars):
+                        col_name = col_names[idx] if idx < len(col_names) else f"column_{idx}"
+                        col_type = columns[col_name]['type'] if col_name in columns else "unknown"
+                        try:
+                            mibInstrumentation.write_variables((oid, value))
+                            success_count += 1
+                        except Exception as col_error:
+                            failed_columns.append(f"{col_name} ({col_type})")
                     if success_count == len(write_vars):
                         print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
                     elif failed_columns:

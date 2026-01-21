@@ -1,70 +1,71 @@
-import unittest
+"""Tests for compile_mib module."""
+
 import sys
-from unittest.mock import patch, MagicMock
+from collections.abc import Generator
 from io import StringIO
 
 
-class TestCompileMib(unittest.TestCase):
-    """Test suite for compile_mib module."""
+import pytest
+import pytest_mock
 
-    def setUp(self) -> None:
-        """Set up test fixtures."""
-        # Remove compile_mib from sys.modules if it exists to allow fresh import
-        if 'compile_mib' in sys.modules:
-            del sys.modules['compile_mib']
+import types
+import sys
 
-    def tearDown(self) -> None:
-        """Clean up test fixtures."""
-        # Remove compile_mib from sys.modules after test
-        if 'compile_mib' in sys.modules:
-            del sys.modules['compile_mib']
-
-    def _import_with_mocks(self, mock_results: dict[str, str]) -> str:
-        """Helper to import compile_mib with mocked compiler results."""
-        captured_output = StringIO()
-
-        with patch('pysmi.compiler.MibCompiler') as mock_compiler_class:
-            mock_compiler = MagicMock()
-            mock_compiler_class.return_value = mock_compiler
-            mock_compiler.compile.return_value = mock_results
-
-            with patch('sys.stdout', captured_output):
-                try:
-                    __import__("compile_mib")  # noqa: F401  # Import for side effects only
-                except SystemExit:
-                    pass  # Expected for some tests
-
-        return captured_output.getvalue()
-
-    def test_compile_mib_success(self) -> None:
-        """Test successful MIB compilation."""
-        mock_results = {'MY-AGENT-MIB': 'compiled'}
-        output = self._import_with_mocks(mock_results)
-
-        # Verify output
-        self.assertIn('MY-AGENT-MIB: compiled', output)
-
-    def test_compile_mib_failure(self) -> None:
-        """Test MIB compilation failure."""
-        mock_results = {'MY-AGENT-MIB': 'failed'}
-        output = self._import_with_mocks(mock_results)
-
-        # Verify output
-        self.assertIn('MY-AGENT-MIB: failed', output)
-
-    def test_compile_mib_partial_success(self) -> None:
-        """Test MIB compilation with partial success."""
-        mock_results = {
-            'MY-AGENT-MIB': 'compiled',
-            'SNMPv2-SMI': 'missing'
-        }
-        output = self._import_with_mocks(mock_results)
-
-        # Verify output contains both results
-        self.assertIn('MY-AGENT-MIB: compiled', output)
-        self.assertIn('SNMPv2-SMI: missing', output)
+# Ensure 'tools.compile_mib' exists for import during tests if not present
+if 'tools.compile_mib' not in sys.modules:
+    sys.modules['tools.compile_mib'] = types.ModuleType('tools.compile_mib')
 
 
-if __name__ == '__main__':
-    unittest.main()
+@pytest.fixture(autouse=True)
+def cleanup_compile_mib() -> Generator[None, None, None]:
+    """Clean up compile_mib from sys.modules before and after each test."""
+    if 'tools.compile_mib' in sys.modules:
+        del sys.modules['tools.compile_mib']
+    yield
+    if 'tools.compile_mib' in sys.modules:
+        del sys.modules['tools.compile_mib']
 
+
+
+def _import_with_mocks(
+    mock_results: dict[str, str], 
+    mocker: "pytest_mock.MockerFixture"
+) -> str:
+    """Helper to import compile_mib with mocked compiler results using pytest-mock."""
+    captured_output = StringIO()
+    mock_compiler_class = mocker.patch('pysmi.compiler.MibCompiler')
+    mock_compiler = mocker.MagicMock()
+    mock_compiler_class.return_value = mock_compiler
+    mock_compiler.compile.return_value = mock_results
+    mocker.patch('sys.stdout', captured_output)
+    mocker.patch('sys.stderr', captured_output)
+    try:
+        __import__("tools.compile_mib")  # noqa: F401
+    except SystemExit:
+        pass  # Expected for some tests
+    return captured_output.getvalue()
+
+
+def test_compile_mib_success(mocker: pytest_mock.MockerFixture) -> None:
+    """Test successful MIB compilation."""
+    mock_results = {'MY-AGENT-MIB': 'compiled'}
+    output = _import_with_mocks(mock_results, mocker)
+    assert 'MY-AGENT-MIB: compiled' in output
+
+
+def test_compile_mib_failure(mocker: pytest_mock.MockerFixture) -> None:
+    """Test MIB compilation failure."""
+    mock_results = {'MY-AGENT-MIB': 'failed'}
+    output = _import_with_mocks(mock_results, mocker)
+    assert 'MY-AGENT-MIB: failed' in output
+
+
+def test_compile_mib_partial_success(mocker: pytest_mock.MockerFixture) -> None:
+    """Test MIB compilation with partial success."""
+    mock_results = {
+        'MY-AGENT-MIB': 'compiled',
+        'SNMPv2-SMI': 'missing'
+    }
+    output = _import_with_mocks(mock_results, mocker)
+    assert 'MY-AGENT-MIB: compiled' in output
+    assert 'SNMPv2-SMI: missing' in output
