@@ -631,19 +631,19 @@ class SNMPAgent:
         # For AUGMENTS tables (like ifXTable), they inherit the index from the base table
         index_col_name = None
         index_is_inherited = False
+        entry_info = table_data['entry']
 
         for col_name, col_info in columns.items():
             if 'Index' in col_name or col_info.get('access') == 'not-accessible':
                 index_col_name = col_name
                 break
 
-        # If no index found, check if this is an AUGMENTS table
-        # Common pattern: ifXTable augments ifEntry (uses ifIndex from ifTable)
-        # These tables don't have their own index column - they inherit it
-        augments_tables = {'ifXTable', 'ifTestTable'}
+        # Check if this is an AUGMENTS table (detected by generator)
+        # The generator marks tables with 'index_from' when their index columns are inherited
+        if 'index_from' in entry_info and entry_info['index_from']:
+            index_is_inherited = True
+
         if not index_col_name:
-            if table_name in augments_tables:
-                index_is_inherited = True  # Will use integer index
             index_col_name = list(columns.keys())[0]
 
         # Always instantiate at least one row for every table, using correct index type

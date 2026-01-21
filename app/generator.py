@@ -97,7 +97,59 @@ class BehaviourGenerator:
                 'initial': initial_value,
                 'dynamic_function': dynamic_func
             }
+
+        # Detect tables that inherit their index from another table (AUGMENTS pattern)
+        # This needs to be done after all symbols are collected
+        table_entries = {name: obj for name, obj in mib_symbols.items()
+                        if hasattr(obj, 'getIndexNames')}
+        self._detect_inherited_indexes(result, table_entries, mib_name)
+
         return result
+
+    def _detect_inherited_indexes(self, result: Dict[str, Any],
+                                   table_entries: Dict[str, Any],
+                                   mib_name: str) -> None:
+        """Detect tables that inherit their index from another table (AUGMENTS pattern).
+
+        This is common for tables like ifXTable which AUGMENTS ifEntry from ifTable,
+        inheriting ifIndex as its index without having the column in its own structure.
+
+        Updates the result dict in-place, adding 'index_from' for entries with inherited indexes.
+        """
+        for entry_name, entry_obj in table_entries.items():
+            try:
+                index_names = entry_obj.getIndexNames()
+                if not index_names:
+                    continue
+
+                # Get the table's OID to find its columns
+                entry_oid = tuple(entry_obj.getName())
+
+                # Find columns that belong to this table entry
+                table_columns = set()
+                for sym_name, sym_info in result.items():
+                    sym_oid = tuple(sym_info['oid'])
+                    # Columns are direct children of the entry (one OID component deeper)
+                    if len(sym_oid) == len(entry_oid) + 1 and sym_oid[:len(entry_oid)] == entry_oid:
+                        table_columns.add(sym_name)
+
+                # Check if index columns are in the table's columns
+                # If an index column is NOT in table_columns, it's inherited from another table
+                inherited_indexes = []
+                for idx_info in index_names:
+                    _, idx_mib, idx_col = idx_info
+                    if idx_col not in table_columns:
+                        inherited_indexes.append({
+                            'mib': idx_mib,
+                            'column': idx_col
+                        })
+
+                # Only mark as inherited if there are actually inherited index columns
+                if inherited_indexes and entry_name in result:
+                    result[entry_name]['index_from'] = inherited_indexes
+            except Exception:
+                # Skip if we can't detect - not all objects have getIndexNames
+                pass
 
     def _extract_type_info(self, syntax_obj: Any, syntax_name: str) -> Dict[str, Any]:
         """Extract detailed type information from a syntax object.
