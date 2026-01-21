@@ -633,18 +633,38 @@ class SNMPAgent:
         index_is_inherited = False
         entry_info = table_data['entry']
 
-        for col_name, col_info in columns.items():
-            if 'Index' in col_name or col_info.get('access') == 'not-accessible':
-                index_col_name = col_name
-                break
-
         # Check if this is an AUGMENTS table (detected by generator)
         # The generator marks tables with 'index_from' when their index columns are inherited
         if 'index_from' in entry_info and entry_info['index_from']:
             index_is_inherited = True
 
-        if not index_col_name:
-            index_col_name = list(columns.keys())[0]
+            # Check for additional local index columns (not-accessible columns)
+            # Tables like ifRcvAddressTable have both inherited index AND local index columns
+            # These multi-column indexes are complex - skip them for now
+            local_index_cols = [c for c, i in columns.items() if i.get('access') == 'not-accessible']
+            if local_index_cols:
+                print(f"Warning: Skipping table {table_name}: has complex multi-column index (inherited + local)")
+                return
+
+            # For inherited index tables, prefer an Integer32-typed column for setIndexNames
+            # to avoid type mismatch issues (pysnmp uses the column type for index encoding)
+            # The actual index is simple integer (1,) so we need an integer-compatible column
+            for col_name, col_info in columns.items():
+                col_base_type = col_info.get('type_info', {}).get('base_type', col_info['type'])
+                if col_base_type in ('Integer32', 'Integer', 'Counter32', 'Gauge32', 'Unsigned32'):
+                    index_col_name = col_name
+                    break
+            # Fallback to first column if no integer column found
+            if not index_col_name:
+                index_col_name = list(columns.keys())[0]
+        else:
+            # Non-inherited tables: look for index column by name or access
+            for col_name, col_info in columns.items():
+                if 'Index' in col_name or col_info.get('access') == 'not-accessible':
+                    index_col_name = col_name
+                    break
+            if not index_col_name:
+                index_col_name = list(columns.keys())[0]
 
         # Always instantiate at least one row for every table, using correct index type
         try:
