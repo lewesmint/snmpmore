@@ -1,4 +1,11 @@
 # SNMP Agent Configuration
+
+system_mib_dir:
+  linux: /usr/share/snmp/mibs
+  darwin: /opt/homebrew/opt/net-snmp/share/snmp/mibs
+  win32: c:\net-snmp\share\snmp\mibs
+
+
 # List the MIBs to load (without extension)
 # Example:
 # mibs:
@@ -14,3 +21,4 @@ mibs:
   - HOST-RESOURCES-MIB
   - HOST-RESOURCES-TYPES
   - CISCO-ALARM-MIB
+

@@ -195,19 +195,21 @@ class SNMPAgent:
         Build and generate in dependency order."""
         import re
         from collections import defaultdict, deque
+        from dynaconf import Dynaconf
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Config file {config_path} not found")
-        with open(config_path, 'r') as f:
-            config_data = yaml.safe_load(f)
-        mibs: List[str] = config_data.get('mibs', [])
+        settings = Dynaconf(settings_files=[config_path], environments=False)
+        mibs: List[str] = settings.get('mibs', [])
         mib_compiler = MibCompiler()
         behaviour_gen = BehaviourGenerator()
         compiled_dir = 'compiled-mibs'
         # Gather all subdirs (including base)
         mib_root = 'data/mibs'
         search_paths = [root for root, _, _ in os.walk(mib_root)] if os.path.exists(mib_root) else []
-        system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
-        if os.path.exists(system_mib_dir):
+        import sys
+        platform_key = sys.platform  # e.g. 'linux', 'darwin', 'win32'
+        system_mib_dir = settings.get('system_mib_dir', {}).get(platform_key)
+        if system_mib_dir and os.path.exists(system_mib_dir):
             search_paths.append(system_mib_dir)
 
         # Find all MIB source files
