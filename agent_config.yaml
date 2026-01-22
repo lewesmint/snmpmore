@@ -1,3 +1,12 @@
+
+# Logging configuration
+logger:
+  level: INFO
+  log_dir: logs
+  log_file: snmp-agent.log
+  console: true
+  max_bytes: 10485760  # 10 MB
+  backup_count: 5
 # SNMP Agent Configuration
 
 system_mib_dir:

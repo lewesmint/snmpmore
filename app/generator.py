@@ -1,11 +1,16 @@
 import os
+import re
 import json
 from typing import Dict, Any, cast, Optional
 from pysnmp.smi import builder
-import re
 
+
+from app.app_logger import AppLogger
+
+logger = AppLogger.get(__name__)
 
 class BehaviourGenerator:
+
     """Handles generation of behaviour JSON from compiled MIB Python files."""
     def __init__(self, output_dir: str = 'mock-behaviour') -> None:
         self.output_dir = output_dir
@@ -35,7 +40,7 @@ class BehaviourGenerator:
         with open(json_path, 'w') as f:
             json.dump(info, f, indent=2)
 
-        print(f'Behaviour JSON written to {json_path}')
+        logger.info(f'Behaviour JSON written to {json_path}')
         return json_path
 
     def _parse_mib_name_from_py(self, compiled_py_path: str) -> str:

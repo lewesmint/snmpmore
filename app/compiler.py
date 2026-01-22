@@ -1,4 +1,5 @@
 import os
+from app.app_logger import AppLogger
 import re
 from typing import List, Any, cast
 from pysmi.reader.localfile import FileReader
@@ -8,6 +9,9 @@ from pysmi.parser.smi import parserFactory
 from pysmi.codegen.pysnmp import PySnmpCodeGen
 from pysmi.compiler import MibCompiler as PysmiMibCompiler
 from app.app_config import AppConfig
+from app.app_logger import AppLogger
+
+logger = AppLogger.get(__name__)
 
 class MibCompilationError(Exception):
     """Raised when MIB compilation fails."""

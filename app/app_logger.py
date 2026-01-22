@@ -16,13 +16,44 @@ class LoggingConfig:
     backup_count: int = 5
 
 
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.app_config import AppConfig
+
+
+from typing import Any
+
 class AppLogger:
     _configured: bool = False
+
+    @staticmethod
+    def configure(app_config: "AppConfig") -> None:
+        """
+        Configure logging from an AppConfig instance.
+        """
+        from typing import cast
+        logger_cfg = cast(dict[str, Any], app_config.get('logger', {}))
+        import os
+        log_dir = logger_cfg.get('log_dir', 'logs')
+        log_file = logger_cfg.get('log_file', 'snmp-agent.log')
+        level = logger_cfg.get('level', 'INFO')
+        console = logger_cfg.get('console', True)
+        max_bytes = logger_cfg.get('max_bytes', 10 * 1024 * 1024)
+        backup_count = logger_cfg.get('backup_count', 5)
+        config = LoggingConfig(
+            level=level,
+            log_dir=Path(os.path.abspath(log_dir)),
+            log_file=log_file,
+            console=console,
+            max_bytes=max_bytes,
+            backup_count=backup_count
+        )
+        AppLogger(config)
 
     def __init__(self, config: LoggingConfig) -> None:
         if AppLogger._configured:
             return
-
         self._configure(config)
         AppLogger._configured = True
 

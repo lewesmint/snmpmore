@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
+from app.app_logger import AppLogger
 from pydantic import BaseModel
 from typing import Optional, Any
 
 # Reference to the SNMPAgent instance will be set by main app
 snmp_agent: Optional[Any] = None
 
+logger = AppLogger.get("__name__")
 app = FastAPI()
 
 class SysDescrUpdate(BaseModel):

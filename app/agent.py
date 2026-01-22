@@ -6,13 +6,11 @@ SNMP Agent that serves enterprise MIB data.
 import threading
 import asyncio
 import time
-import logging
 import os
 import json
 import re
 from typing import Any, Tuple, List, cast, Optional
-from app.compiler import MibCompiler
-from app.generator import BehaviourGenerator
+
 from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.smi import builder
@@ -25,9 +23,18 @@ from pysnmp.hlapi.v3arch.asyncio import (
 )
 from pysnmp.smi.rfc1902 import ObjectIdentity
 from app.app_config import AppConfig
+from app.app_logger import AppLogger, LoggingConfig
+from app.compiler import MibCompiler
+from app.generator import BehaviourGenerator
 from collections import defaultdict, deque
 from typing import cast
 
+# Ensure logger is configured from config file if not already
+if not AppLogger._configured:
+    config_path = 'agent_config.yaml'
+    app_config = AppConfig(config_path)
+    AppLogger.configure(app_config)
+logger = AppLogger.get(__name__)
 # Import SNMP data types
 Counter32 = v2c.Counter32
 Counter64 = v2c.Counter64
@@ -36,10 +43,6 @@ TimeTicks = v2c.TimeTicks
 IpAddress = v2c.IpAddress
 Unsigned32 = v2c.Unsigned32
 Integer32 = v2c.Integer32
-
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 
 class SNMPAgent:
     """SNMP Agent that serves enterprise MIB data."""
@@ -84,10 +87,10 @@ class SNMPAgent:
                     with open(json_path, 'w') as f:
                         json.dump(mib_json, f, indent=2)
 
-                    print(f"Persisted {symbol_name} = '{value}' to {json_path}")
+                    logger.info(f"Persisted {symbol_name} = '{value}' to {json_path}")
                     return
 
-        print(f"Warning: Could not find OID {oid} in any loaded MIB to persist")
+        logger.warning(f"Could not find OID {oid} in any loaded MIB to persist")
 
     def _load_config(self) -> None:
         """Stub for test patching."""
@@ -300,7 +303,7 @@ class SNMPAgent:
         for mib in build_order:
             src_path = mib_name_to_file.get(mib)
             if not src_path:
-                print(f"WARNING: No source file found for {mib}, skipping.")
+                logger.warning(f"No source file found for {mib}, skipping.")
                 continue
             compiled_py = os.path.join(compiled_dir, f'{mib}.py')
             json_path = os.path.join('mock-behaviour', f'{mib}_behaviour.json')
@@ -314,9 +317,9 @@ class SNMPAgent:
                         status = mib_compiler.last_compile_results[mib]
                         if status == 'compiled':
                             compiled_this_session.add(mib)
-                            print(f"{mib}: compiled")
+                            logger.info(f"{mib}: compiled")
                 except Exception as e:
-                    print(f"FATAL: Failed to compile {mib}: {e}")
+                    logger.error(f"Failed to compile {mib}: {e}")
                     import sys
                     sys.exit(1)
 
@@ -326,7 +329,7 @@ class SNMPAgent:
                     json_path = behaviour_gen.generate(compiled_py, mib)
                     # Note: generate() already prints "Behaviour JSON written to" message
                 except Exception as e:
-                    print(f"FATAL: Failed to generate behaviour JSON for {mib}: {e}")
+                    logger.error(f"Failed to generate behaviour JSON for {mib}: {e}")
                     import sys
                     sys.exit(1)
 
@@ -334,7 +337,7 @@ class SNMPAgent:
             if mib in mibs:
                 with open(json_path, 'r') as jf:
                     self.mib_jsons[mib] = json.load(jf)
-                print(f"{mib}: loaded from behaviour JSON")
+                logger.info(f"{mib}: loaded from behaviour JSON")
 
     def _setup_transport(self) -> None:
         """Configure UDP transport."""
@@ -558,7 +561,7 @@ class SNMPAgent:
         if scalar_symbols:
             export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
             self.mibBuilder.export_symbols(export_name, *scalar_symbols)
-            print(f"Loaded {mib}: {registered_count} objects")
+            logger.info(f"Loaded {mib}: {registered_count} objects")
 
     def _register_tables(self, mib: str, mib_json: dict[str, Any], type_map: dict[str, Any]) -> None:
         """Detect and register all tables in the MIB with a single row instance."""
@@ -634,7 +637,7 @@ class SNMPAgent:
             index_is_inherited = True
             local_index_cols = [c for c, i in columns.items() if i.get('access') == 'not-accessible']
             if local_index_cols:
-                print(f"Warning: Skipping table {table_name}: has complex multi-column index (inherited + local)")
+                logger.warning(f"Skipping table {table_name}: has complex multi-column index (inherited + local)")
                 return
             for col_name, col_info in columns.items():
                 col_base_type = col_info.get('type_info', {}).get('base_type', col_info['type'])
@@ -653,7 +656,7 @@ class SNMPAgent:
         try:
             entry_obj = self.MibTableRow(entry_oid).setIndexNames((0, export_name, index_col_name))
         except Exception as e:
-            print(f"Warning: Could not register table {table_name}: could not create entry object: {e}")
+            logger.warning(f"Could not register table {table_name}: could not create entry object: {e}")
             return
         column_objects = {}
         symbols_to_export = {
@@ -722,7 +725,7 @@ class SNMPAgent:
             if write_vars:
                 try:
                     mibInstrumentation.write_variables(*write_vars)
-                    print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
+                    logger.info(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
                 except Exception as e:
                     col_names = list(columns.keys())
                     failed_columns = []
@@ -736,13 +739,13 @@ class SNMPAgent:
                         except Exception as col_error:
                             failed_columns.append(f"{col_name} ({col_type})")
                     if success_count == len(write_vars):
-                        print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
+                        logger.info(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
                     elif failed_columns:
-                        print(f"Warning: Could not register table {table_name}: Failed columns: {', '.join(failed_columns)}")
+                        logger.warning(f"Could not register table {table_name}: Failed columns: {', '.join(failed_columns)}")
                     else:
                         raise e
         except Exception as e:
-            print(f"Warning: Could not register table {table_name}: {e}")
+            logger.warning(f"Could not register table {table_name}: {e}")
 
     def _register_single_table(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
         """Register a single table with support for multi-column (inherited + local) indexes."""
@@ -860,7 +863,7 @@ class SNMPAgent:
             if write_vars:
                 try:
                     mibInstrumentation.write_variables(*write_vars)
-                    print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
+                    logger.info(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
                 except Exception as e:
                     col_names = list(columns.keys())
                     failed_columns = []
@@ -874,20 +877,20 @@ class SNMPAgent:
                         except Exception as col_error:
                             failed_columns.append(f"{col_name} ({col_type})")
                     if success_count == len(write_vars):
-                        print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
+                        logger.info(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
                     elif failed_columns:
-                        print(f"Warning: Could not register table {table_name}: Failed columns: {', '.join(failed_columns)}")
+                        logger.warning(f"Could not register table {table_name}: Failed columns: {', '.join(failed_columns)}")
                     else:
                         raise e
         except Exception as e:
-            print(f"Warning: Could not register table {table_name}: {e}")
+            logger.warning(f"Could not register table {table_name}: {e}")
 
     def run(self) -> None:
         """Run the SNMP agent (blocking)."""
-        print(f'SNMP agent running on {self.host}:{self.port}')
-        print(f'Community: public')
-        print(f'Try: snmpwalk -v2c -c public localhost:{self.port}')
-        print('Press Ctrl+C to stop')
+        logger.info(f'SNMP agent running on {self.host}:{self.port}')
+        logger.info('Community: public')
+        logger.info(f'Try: snmpwalk -v2c -c public localhost:{self.port}')
+        logger.info('Press Ctrl+C to stop')
 
         # Register an imaginary never-ending job to keep I/O dispatcher running forever
         self.snmpEngine.transport_dispatcher.job_started(1)
@@ -896,7 +899,7 @@ class SNMPAgent:
         try:
             self.snmpEngine.open_dispatcher()
         except KeyboardInterrupt:
-            print('\nShutting down agent')
+            logger.info('Shutting down agent')
         finally:
             self.snmpEngine.close_dispatcher()
 
@@ -914,7 +917,6 @@ class SNMPAgent:
             value: Value to send with the trap
             trap_type: 'trap' or 'inform'
         """
-        logger = logging.getLogger(__name__)
         try:
             # Create a notification type with the OID and value
             result = await send_notification(

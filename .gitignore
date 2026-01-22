@@ -49,3 +49,4 @@ OLD-compiled-mibs/
 compiled-mibs/*
 OLD-mock-behaviour/
 mock-behaviour/
+logs/
