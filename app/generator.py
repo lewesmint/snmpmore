@@ -2,6 +2,7 @@ import os
 import json
 from typing import Dict, Any, cast, Optional
 from pysnmp.smi import builder
+import re
 
 
 class BehaviourGenerator:
@@ -43,7 +44,6 @@ class BehaviourGenerator:
             for line in f:
                 if 'mibBuilder.exportSymbols' in line:
                     # Example: mibBuilder.exportSymbols("MY-AGENT-MIB",
-                    import re
                     m = re.search(r'mibBuilder\.exportSymbols\(["\"]([A-Za-z0-9\-_.]+)["\"]', line)
                     if m:
                         return m.group(1)

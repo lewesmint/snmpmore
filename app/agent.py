@@ -8,8 +8,8 @@ import asyncio
 import time
 import logging
 import os
-import yaml
 import json
+import re
 from typing import Any, Tuple, List, cast, Optional
 from app.compiler import MibCompiler
 from app.generator import BehaviourGenerator
@@ -24,6 +24,9 @@ from pysnmp.hlapi.v3arch.asyncio import (
     ContextData, NotificationType, send_notification
 )
 from pysnmp.smi.rfc1902 import ObjectIdentity
+from app.app_config import AppConfig
+from collections import defaultdict, deque
+from typing import cast
 
 # Import SNMP data types
 Counter32 = v2c.Counter32
@@ -90,7 +93,7 @@ class SNMPAgent:
         """Stub for test patching."""
         pass
 
-    def __init__(self, host: str = '127.0.0.1', port: int = 161, config_path: str = 'agent_config.yaml') -> None:
+    def __init__(self, host: str = '127.0.0.1', port: int = 161, config_path: str = 'agent_config.yaml', app_config: AppConfig | None=None) -> None:
         """Initialize the SNMP agent with config file support.
 
         Args:
@@ -100,6 +103,11 @@ class SNMPAgent:
         """
         self.host = host
         self.port = port
+        if app_config is None:
+            from app.app_config import AppConfig
+            self.app_config = AppConfig(config_path)
+        else:
+            self.app_config = app_config
         self.snmpEngine = engine.SnmpEngine()
         self.mibBuilder = self.snmpEngine.get_mib_builder()
 
@@ -145,7 +153,7 @@ class SNMPAgent:
 
         # Load config and ensure MIBs/JSONs exist
         self.mib_jsons: dict[str, Any] = {}
-        self._load_config_and_prepare_mibs(config_path)
+        self._load_config_and_prepare_mibs()
 
         self._setup_transport()
         self._setup_community()
@@ -154,7 +162,6 @@ class SNMPAgent:
 
     def _find_compiled_py_by_mib_name(self, mib_name: str, compiled_dir: str = 'compiled-mibs') -> str:
         """Scan compiled-mibs for .py files whose export symbol matches mib_name."""
-        import re
         for fname in os.listdir(compiled_dir):
             if fname.endswith('.py'):
                 fpath = os.path.join(compiled_dir, fname)
@@ -171,7 +178,6 @@ class SNMPAgent:
 
     def _find_mib_source_by_name(self, mib_name: str, search_paths: list[str]) -> str:
         """Scan all files in search_paths, parse for internal MIB name, and match to mib_name."""
-        import re
         for search_path in search_paths:
             for root, _dirs, files in os.walk(search_path):
                 for fname in files:
@@ -190,26 +196,18 @@ class SNMPAgent:
                         continue
         raise FileNotFoundError(f"MIB source for {mib_name} not found in search paths {search_paths}")
 
-    def _load_config_and_prepare_mibs(self, config_path: str) -> None:
+    def _load_config_and_prepare_mibs(self) -> None:
         """Load config YAML, ensure compiled MIBs and JSONs exist, generate if missing, using runtime classes.
         Build and generate in dependency order."""
-        import re
-        from collections import defaultdict, deque
-        from dynaconf import Dynaconf
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Config file {config_path} not found")
-        settings = Dynaconf(settings_files=[config_path], environments=False)
-        mibs: List[str] = settings.get('mibs', [])
+        mibs = cast(list[str], self.app_config.get('mibs', []))
         mib_compiler = MibCompiler()
         behaviour_gen = BehaviourGenerator()
         compiled_dir = 'compiled-mibs'
         # Gather all subdirs (including base)
         mib_root = 'data/mibs'
         search_paths = [root for root, _, _ in os.walk(mib_root)] if os.path.exists(mib_root) else []
-        import sys
-        platform_key = sys.platform  # e.g. 'linux', 'darwin', 'win32'
-        system_mib_dir = settings.get('system_mib_dir', {}).get(platform_key)
-        if system_mib_dir and os.path.exists(system_mib_dir):
+        system_mib_dir = self.app_config.get_platform_setting('system_mib_dir')
+        if isinstance(system_mib_dir, str) and system_mib_dir and os.path.exists(system_mib_dir):
             search_paths.append(system_mib_dir)
 
         # Find all MIB source files

@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List, Any, cast
 from pysmi.reader.localfile import FileReader
 from pysmi.searcher import PyFileSearcher
@@ -6,7 +7,7 @@ from pysmi.writer import PyFileWriter
 from pysmi.parser.smi import parserFactory
 from pysmi.codegen.pysnmp import PySnmpCodeGen
 from pysmi.compiler import MibCompiler as PysmiMibCompiler
-
+from app.app_config import AppConfig
 
 class MibCompilationError(Exception):
     """Raised when MIB compilation fails."""
@@ -17,10 +18,11 @@ class MibCompilationError(Exception):
 
 class MibCompiler:
     """Handles compilation of MIB .txt files to Python using pysmi."""
-    def __init__(self, output_dir: str = 'compiled-mibs') -> None:
+    def __init__(self, output_dir: str = 'compiled-mibs', app_config: AppConfig | None=None) -> None:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self.last_compile_results: dict[str, str] = {}  # Track last compilation results
+        self.app_config = app_config
 
     def compile(self, mib_txt_path: str) -> str:
         """Compile a MIB .txt file to Python.
@@ -58,8 +60,9 @@ class MibCompiler:
                     compiler.add_sources(FileReader(root))
 
         # Add system MIB directory (Net-SNMP default location on Windows)
-        system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
-        if os.path.exists(system_mib_dir):
+        # AppConfig should be passed in by the caller for config access
+        system_mib_dir = self.app_config.get_platform_setting('system_mib_dir') if self.app_config is not None else None
+        if isinstance(system_mib_dir, str) and system_mib_dir and os.path.exists(system_mib_dir):
             compiler.add_sources(FileReader(system_mib_dir))
 
         # Add searchers for already compiled MIBs
@@ -127,7 +130,6 @@ class MibCompiler:
 
     def _parse_missing_from_status(self, status: str) -> List[str]:
         """Parse missing dependencies from compilation status message."""
-        import re
         missing: set[str] = set()
         # Look for patterns like "MIB-NAME is missing" or similar
         for match in re.finditer(r'([A-Za-z0-9\-]+)\s+is missing', status):
