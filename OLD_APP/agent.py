@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-SNMP Agent that serves enterprise MIB data.
+SNMP agent using pysnmp that exposes scalars and tables as defined in MY-AGENT-MIB.
+Listens on UDP port 11161 (non-privileged) and responds to SNMP queries.
 """
 
 import threading
 import asyncio
 import time
+import logging
 import os
+import yaml
 import json
-import re
 from typing import Any, Tuple, List, cast, Optional
-
+from app.compiler import MibCompiler
+from app.generator import BehaviourGenerator
 from pysnmp.entity import engine, config
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.smi import builder
@@ -22,27 +25,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
     ContextData, NotificationType, send_notification
 )
 from pysnmp.smi.rfc1902 import ObjectIdentity
-from app.app_config import AppConfig
-from app.app_logger import AppLogger
-from app.compiler import MibCompiler
-from app.generator import BehaviourGenerator
-from app.type_registry import TypeRegistry
-from collections import defaultdict, deque
-from typing import cast
-from pysnmp.smi import builder as snmp_builder
-from pysnmp.entity import engine as snmp_engine
 
-# Ensure logger is configured from config file if not already
-if not AppLogger._configured:
-    config_path = 'agent_config.yaml'
-    app_config = AppConfig(config_path)
-    AppLogger.configure(app_config)
-logger = AppLogger.get(__name__)
-
-# Use AppLogger static methods for all logging to enable patching in tests
-log_warning = AppLogger.warning
-log_error = AppLogger.error
-log_info = AppLogger.info
 # Import SNMP data types
 Counter32 = v2c.Counter32
 Counter64 = v2c.Counter64
@@ -52,9 +35,12 @@ IpAddress = v2c.IpAddress
 Unsigned32 = v2c.Unsigned32
 Integer32 = v2c.Integer32
 
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+
 class SNMPAgent:
     """SNMP Agent that serves enterprise MIB data."""
-
 
     def get_scalar_value(self, oid: Tuple[int, ...]) -> str:
         # Find the MibScalarInstance for the given OID and return its value as string
@@ -96,117 +82,12 @@ class SNMPAgent:
                     with open(json_path, 'w') as f:
                         json.dump(mib_json, f, indent=2)
 
-                    log_info(f"Persisted {symbol_name} = '{value}' to {json_path}")
+                    print(f"Persisted {symbol_name} = '{value}' to {json_path}")
                     return
 
-        log_warning(f"Could not find OID {oid} in any loaded MIB to persist")
+        print(f"Warning: Could not find OID {oid} in any loaded MIB to persist")
 
-    def _load_config(self) -> None:
-        """Stub for test patching."""
-        pass
-
-    def __init__(
-        self,
-        host: str = '127.0.0.1',
-        port: int = 161,
-        config_path: str = 'agent_config.yaml',
-        app_config: Optional[AppConfig] = None,
-        fail_on_registration_error: bool = False,
-        use_dunder_export_names: bool = False
-    ) -> None:
-        # Store host and port for later use (needed by run())
-        self.host = host
-        self.port = port
-        """New init: only registers types from compiled MIBs in config and prints type keys."""
-        # Load config to get MIBs
-        config_path = config_path or 'agent_config.yaml'
-        app_config = app_config or AppConfig(config_path)
-        mibs = app_config.get('mibs', [])
-        registry = TypeRegistry()
-        compiled_dir = os.path.join(os.path.dirname(__file__), '..', 'compiled-mibs')
-        compiled_dir = os.path.abspath(compiled_dir)
-        # Build mapping: exported MIB name -> filename
-        exported_mib_map = {}
-        if os.path.isdir(compiled_dir):
-                for root, _dirs, files in os.walk(compiled_dir):
-                    for fname in files:
-                        if fname.endswith('.py') and not fname.startswith('__'):
-                            fpath = os.path.join(root, fname)
-                            try:
-                                with open(fpath, 'r', encoding='utf-8') as f:
-                                    for line in f:
-                                        if 'mibBuilder.exportSymbols' in line:
-                                            import re
-                                            m = re.search(r'mibBuilder\.exportSymbols\(["\']([A-Za-z0-9\-_.]+)["\']', line)
-                                            if m:
-                                                exported_name = m.group(1)
-                                                # Build module name relative to compiled-mibs dir
-                                                rel_path = os.path.relpath(fpath, compiled_dir)
-                                                mod_name = rel_path[:-3].replace(os.sep, '.')
-                                                exported_mib_map[exported_name] = mod_name
-                                                print(f"Detected compiled MIB: {exported_name} -> {mod_name}")
-                                            break
-                            except Exception:
-                                continue
-        py_files = [f for f in os.listdir(compiled_dir) if f.endswith('.py') and not f.startswith('__')]
-        print(f"Compiled MIB .py files found: {py_files}")
-        # When parsing to JSON, modules are imported by name, e.g. importlib.import_module(f"compiled-mibs.{mib}")
-        # You can directly import by filename (without .py) for each MIB in config
-        exported_mib_map = {fname[:-3]: fname[:-3] for fname in py_files}
-        print(f"Compiled MIBs available for import: {list(exported_mib_map.keys())}")
-        # Register types from each compiled MIB that exists
-        missing_mibs = []
-        # Always normalize mibs to a list
-        if not isinstance(mibs, (list, tuple, set)):
-            mibs = [mibs]
-        else:
-            mibs = list(mibs)
-        snmpEngine = snmp_engine.SnmpEngine()
-        mibBuilder = snmpEngine.get_mib_builder()
-        mibBuilder.add_mib_sources(snmp_builder.DirMibSource(compiled_dir))
-        for mib in mibs:
-            mib_str = str(mib)
-            if mib_str in exported_mib_map:
-                try:
-                    mibBuilder.load_modules(mib_str)
-                    mib_symbols = mibBuilder.mibSymbols.get(mib_str, {})
-                    registry.add_types_from_mib_symbols(mib_str, mib_symbols)
-                except Exception as e:
-                    print(f"Could not register types from {mib_str}: {e}")
-            else:
-                print(f"Compiled MIB not found for {mib_str} in {compiled_dir}")
-                missing_mibs.append(mib_str)
-        print("Registered type keys:", registry.keys())
-        if missing_mibs:
-            print("Missing compiled MIBs:", missing_mibs)
-
-        # Enumerate and print all exported symbols for each loaded MIB
-        try:
-            from pysnmp.entity import engine
-            from pysnmp.smi import builder
-            snmpEngine = engine.SnmpEngine()
-            mibBuilder = snmpEngine.get_mib_builder()
-            mibBuilder.add_mib_sources(builder.DirMibSource(compiled_dir))
-            print("\nEnumerating exported symbols for each loaded MIB:")
-            for mib_name in mibBuilder.mibSymbols:
-                print(f"Symbols in {mib_name}:")
-                for symbol_name, symbol_obj in mibBuilder.mibSymbols[mib_name].items():
-                    symbol_type = type(symbol_obj).__name__
-                    label = getattr(symbol_obj, 'getLabel', lambda: None)()
-                    oid = getattr(symbol_obj, 'getName', lambda: None)()
-                    print(f"  {symbol_name} ({symbol_type}) label={label} oid={oid}")
-        except Exception as e:
-            print(f"Error enumerating symbols: {e}")
-
-    def OLD__init__(
-        self,
-        host: str = '127.0.0.1',
-        port: int = 161,
-        config_path: str = 'agent_config.yaml',
-        app_config: Optional[AppConfig] = None,
-        fail_on_registration_error: bool = False,
-        use_dunder_export_names: bool = False
-    ) -> None:
+    def __init__(self, host: str = '127.0.0.1', port: int = 161, config_path: str = 'agent_config.yaml') -> None:
         """Initialize the SNMP agent with config file support.
 
         Args:
@@ -216,13 +97,6 @@ class SNMPAgent:
         """
         self.host = host
         self.port = port
-        self.fail_on_registration_error = fail_on_registration_error
-        self.use_dunder_export_names = use_dunder_export_names
-        if app_config is None:
-            from app.app_config import AppConfig
-            self.app_config = AppConfig(config_path)
-        else:
-            self.app_config = app_config
         self.snmpEngine = engine.SnmpEngine()
         self.mibBuilder = self.snmpEngine.get_mib_builder()
 
@@ -268,7 +142,7 @@ class SNMPAgent:
 
         # Load config and ensure MIBs/JSONs exist
         self.mib_jsons: dict[str, Any] = {}
-        self._load_config_and_prepare_mibs()
+        self._load_config_and_prepare_mibs(config_path)
 
         self._setup_transport()
         self._setup_community()
@@ -277,6 +151,7 @@ class SNMPAgent:
 
     def _find_compiled_py_by_mib_name(self, mib_name: str, compiled_dir: str = 'compiled-mibs') -> str:
         """Scan compiled-mibs for .py files whose export symbol matches mib_name."""
+        import re
         for fname in os.listdir(compiled_dir):
             if fname.endswith('.py'):
                 fpath = os.path.join(compiled_dir, fname)
@@ -293,6 +168,7 @@ class SNMPAgent:
 
     def _find_mib_source_by_name(self, mib_name: str, search_paths: list[str]) -> str:
         """Scan all files in search_paths, parse for internal MIB name, and match to mib_name."""
+        import re
         for search_path in search_paths:
             for root, _dirs, files in os.walk(search_path):
                 for fname in files:
@@ -311,18 +187,22 @@ class SNMPAgent:
                         continue
         raise FileNotFoundError(f"MIB source for {mib_name} not found in search paths {search_paths}")
 
-    def _load_config_and_prepare_mibs(self) -> None:
+    def _load_config_and_prepare_mibs(self, config_path: str) -> None:
         """Load config YAML, ensure compiled MIBs and JSONs exist, generate if missing, using runtime classes.
         Build and generate in dependency order."""
-        mibs = cast(list[str], self.app_config.get('mibs', []))
+        import re
+        from collections import defaultdict, deque
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Config file {config_path} not found")
+        with open(config_path, 'r') as f:
+            config_data = yaml.safe_load(f)
+        mibs: List[str] = config_data.get('mibs', [])
         mib_compiler = MibCompiler()
         behaviour_gen = BehaviourGenerator()
         compiled_dir = 'compiled-mibs'
-        # Gather all subdirs (including base)
-        mib_root = 'data/mibs'
-        search_paths = [root for root, _, _ in os.walk(mib_root)] if os.path.exists(mib_root) else []
-        system_mib_dir = self.app_config.get_platform_setting('system_mib_dir')
-        if isinstance(system_mib_dir, str) and system_mib_dir and os.path.exists(system_mib_dir):
+        search_paths = ['data/mibs', 'data/mibs/cisco']
+        system_mib_dir = r'c:\net-snmp\share\snmp\mibs'
+        if os.path.exists(system_mib_dir):
             search_paths.append(system_mib_dir)
 
         # Find all MIB source files
@@ -332,7 +212,7 @@ class SNMPAgent:
                 continue
             for root, _dirs, files in os.walk(d):
                 for fname in files:
-                    if fname.endswith(('.my', '.txt', '.mib')):
+                    if fname.endswith('.my') or fname.endswith('.txt'):
                         mib_files.append(os.path.join(root, fname))
 
         # Map: mib_name -> (src_path, set(imported_mibs))
@@ -405,8 +285,7 @@ class SNMPAgent:
             required.add(mib)
             for dep in mib_imports.get(mib, (None, set()))[1]:
                 collect_deps(dep)
-        mibs_list = list(mibs) if isinstance(mibs, (list, tuple, set)) else []
-        for mib in mibs_list:
+        for mib in mibs:
             collect_deps(mib)
         build_order = [mib for mib in order if mib in required]
 
@@ -416,7 +295,7 @@ class SNMPAgent:
         for mib in build_order:
             src_path = mib_name_to_file.get(mib)
             if not src_path:
-                log_warning(f"No source file found for {mib}, skipping.")
+                print(f"WARNING: No source file found for {mib}, skipping.")
                 continue
             compiled_py = os.path.join(compiled_dir, f'{mib}.py')
             json_path = os.path.join('mock-behaviour', f'{mib}_behaviour.json')
@@ -430,9 +309,9 @@ class SNMPAgent:
                         status = mib_compiler.last_compile_results[mib]
                         if status == 'compiled':
                             compiled_this_session.add(mib)
-                            log_info(f"{mib}: compiled")
+                            print(f"{mib}: compiled")
                 except Exception as e:
-                    log_error(f"Failed to compile {mib}: {e}")
+                    print(f"FATAL: Failed to compile {mib}: {e}")
                     import sys
                     sys.exit(1)
 
@@ -442,7 +321,7 @@ class SNMPAgent:
                     json_path = behaviour_gen.generate(compiled_py, mib)
                     # Note: generate() already prints "Behaviour JSON written to" message
                 except Exception as e:
-                    log_error(f"Failed to generate behaviour JSON for {mib}: {e}")
+                    print(f"FATAL: Failed to generate behaviour JSON for {mib}: {e}")
                     import sys
                     sys.exit(1)
 
@@ -450,7 +329,7 @@ class SNMPAgent:
             if mib in mibs:
                 with open(json_path, 'r') as jf:
                     self.mib_jsons[mib] = json.load(jf)
-                log_info(f"{mib}: loaded from behaviour JSON")
+                print(f"{mib}: loaded from behaviour JSON")
 
     def _setup_transport(self) -> None:
         """Configure UDP transport."""
@@ -505,13 +384,43 @@ class SNMPAgent:
 
 
     def _register_mib_objects(self) -> None:
-        """Register all MIB objects (scalars and tables) for all MIBs in config, using dynamic type resolution."""
-        from app.syntax_resolver import resolve_syntax_name
-        # Only keep special cases in type_map (those that require a specific class instance)
+        """Register all MIB objects (scalars and tables) for all MIBs in config."""
         type_map = {
+            'DisplayString': OctetString,
+            'Integer32': Integer32,
+            'Counter32': Counter32,
+            'Counter64': Counter64,
+            'Gauge32': Gauge32,
+            'TimeTicks': TimeTicks,
+            'IpAddress': IpAddress,
+            'Unsigned32': Unsigned32,
+            'OctetString': OctetString,
+            'Integer': Integer,
+            'ObjectIdentifier': ObjectIdentifier,
+            # Custom types - map to base SNMP types
+            'InterfaceIndex': Integer32,
+            'InterfaceIndexOrZero': Integer32,
+            'EntPhysicalIndexOrZero': Integer32,
+            'CoiAlarmObjectTypeClass': Integer32,
+            'InetAddressType': Integer32,
+            'InetAddress': OctetString,
+            'InetPortNumber': Unsigned32,
+            'TruthValue': Integer32,
+            'TimeStamp': TimeTicks,
             'TestAndIncr': self.TestAndIncr,  # Use actual TestAndIncr from SNMPv2-TC
-            'RowStatus': self.RowStatus,      # Use actual RowStatus from SNMPv2-TC
+            'AutonomousType': ObjectIdentifier,
+            'RowStatus': self.RowStatus,  # Use actual RowStatus from SNMPv2-TC
+            'PhysAddress': OctetString,
+            'OwnerString': OctetString,
+            'DateAndTime': OctetString,
+            # HOST-RESOURCES-MIB custom types
+            'ProductID': ObjectIdentifier,  # TextualConvention based on ObjectIdentifier
+            'InternationalDisplayString': OctetString,  # TextualConvention based on OctetString
+            'KBytes': Integer32,  # TextualConvention based on Integer32
+            # IANAifType-MIB custom types
+            'IANAifType': Integer32,  # TextualConvention based on Integer32 (enum for interface types)
         }
+
         for mib, mib_json in self.mib_jsons.items():
             table_related_objects = self._find_table_related_objects(mib_json)
             self._register_scalars(mib, mib_json, table_related_objects, type_map)
@@ -642,17 +551,15 @@ class SNMPAgent:
                     scalar_symbols.append(self.MibScalarInstance(scalar_oid, (0,), value))
                 registered_count += 1
         if scalar_symbols:
-            # Use dunder export names only if flag is set and not a standard SNMPv2 MIB
-            if mib.startswith('SNMPv2-') or mib == 'IF-MIB' or not self.use_dunder_export_names:
-                export_name = mib
-            else:
-                export_name = f'__{mib}'
+            export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
             self.mibBuilder.export_symbols(export_name, *scalar_symbols)
-            log_info(f"Loaded {mib}: {registered_count} objects")
+            print(f"Loaded {mib}: {registered_count} objects")
 
     def _register_tables(self, mib: str, mib_json: dict[str, Any], type_map: dict[str, Any]) -> None:
         """Detect and register all tables in the MIB with a single row instance."""
-        # No longer skip any tables; attempt to register all, including standard SNMPv2 and UDP MIBs.
+        # Skip table registration for standard SNMPv2 and UDP MIBs - they have complex indexes
+        if mib.startswith('SNMPv2-') or mib == 'UDP-MIB':
+            return
 
         # Find all tables by looking for objects ending in "Table"
         tables: dict[str, dict[str, Any]] = {}
@@ -690,130 +597,139 @@ class SNMPAgent:
                         'prefix': table_prefix
                     }
 
-        # Register only the first detected table for focused debugging
-        for idx, (table_name, table_data) in enumerate(tables.items()):
-            if idx > 0:
-                log_info(f"Skipping table {table_name} (only processing first table for debugging)")
-                continue
+        # Register each table
+        for table_name, table_data in tables.items():
             try:
                 self._register_single_table(mib, table_name, table_data, type_map)
             except Exception as e:
-                msg = f"Could not register table {table_name}: {e}"
-                print(f"Warning: {msg}")
-                if getattr(self, 'fail_on_registration_error', False):
-                    log_error(msg)
-                    import sys
-                    sys.exit(1)
+                print(f"Warning: Could not register table {table_name}: {e}")
 
-
-    def _basic_register_single_table(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
-        """Legacy: Register a single table with one row instance (no multi-column index support)."""
-        # ...existing code from the original _register_single_table...
+    def _register_single_table(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
+        """Register a single table with one row instance."""
         table_oid = tuple(table_data['table']['oid'])
         entry_oid = tuple(table_data['entry']['oid'])
         columns = table_data['columns']
         prefix = table_data['prefix']
-        # Try both '__MIB' and 'MIB' as export names for symbol import
-        export_names = [mib]
-        if not mib.startswith('SNMPv2-'):
-            export_names.insert(0, f'__{mib}')
-        # Try to import symbol from any possible export name
-        found = False
-        export_name = export_names[0]  # Default to first, will be overwritten if found
-        for candidate_export_name in export_names:
-            try:
-                existing = self.mibBuilder.import_symbols(candidate_export_name, table_name)
-                if existing:
-                    raise Exception(f"Symbol {table_name} already exported at {candidate_export_name}")
-                found = True
-                export_name = candidate_export_name
-                break
-            except Exception as e:
-                if "already exported" in str(e):
-                    raise
-                pass
+
+        export_name = mib if mib.startswith('SNMPv2-') else f'__{mib}'
+
+        # Check if table is already registered
+        try:
+            existing = self.mibBuilder.import_symbols(export_name, table_name)
+            if existing:
+                raise Exception(f"Symbol {table_name} already exported at {export_name}")
+        except Exception as e:
+            if "already exported" in str(e):
+                raise
+            # Symbol doesn't exist, which is what we want
+            pass
+
+        # Create table and entry objects
         table_obj = self.MibTable(table_oid)
+
+        # Find the index column (usually the first column or one with "Index" in name)
+        # For AUGMENTS tables (like ifXTable), they inherit the index from the base table
         index_col_name = None
         index_is_inherited = False
         entry_info = table_data['entry']
+
+        for col_name, col_info in columns.items():
+            if 'Index' in col_name or col_info.get('access') == 'not-accessible':
+                index_col_name = col_name
+                break
+
+        # Check if this is an AUGMENTS table (detected by generator)
+        # The generator marks tables with 'index_from' when their index columns are inherited
         if 'index_from' in entry_info and entry_info['index_from']:
             index_is_inherited = True
-            local_index_cols = [c for c, i in columns.items() if i.get('access') == 'not-accessible']
-            if local_index_cols:
-                log_warning(f"Skipping table {table_name}: has complex multi-column index (inherited + local)")
-                return
-            for col_name, col_info in columns.items():
-                col_base_type = col_info.get('type_info', {}).get('base_type', col_info['type'])
-                if col_base_type in ('Integer32', 'Integer', 'Counter32', 'Gauge32', 'Unsigned32'):
-                    index_col_name = col_name
-                    break
-            if not index_col_name:
-                index_col_name = list(columns.keys())[0]
-        else:
-            for col_name, col_info in columns.items():
-                if 'Index' in col_name or col_info.get('access') == 'not-accessible':
-                    index_col_name = col_name
-                    break
-            if not index_col_name:
-                index_col_name = list(columns.keys())[0]
+
+        if not index_col_name:
+            index_col_name = list(columns.keys())[0]
+
+        # Always instantiate at least one row for every table, using correct index type
         try:
             entry_obj = self.MibTableRow(entry_oid).setIndexNames((0, export_name, index_col_name))
         except Exception as e:
-            msg = f"Could not register table {table_name}: could not create entry object: {e}"
-            log_warning(msg)
-            if getattr(self, 'fail_on_registration_error', False):
-                log_error(msg)
-                import sys
-                sys.exit(1)
+            print(f"Warning: Could not register table {table_name}: could not create entry object: {e}")
             return
+
+        # Create column objects
         column_objects = {}
         symbols_to_export = {
             table_name: table_obj,
             f"{prefix}Entry": entry_obj
         }
+
         for col_name, col_info in columns.items():
             col_oid = tuple(col_info['oid'])
             col_type_name = col_info['type']
             pysnmp_type = type_map.get(col_type_name, Integer32)
+
+            # Try to import the actual type from compiled MIBs (for TextualConventions like PhysAddress)
+            # This preserves attributes like fixed_length that pysnmp may need
             type_instance = None
             try:
+                # Try importing from SNMPv2-TC first (common textual conventions)
                 imported_type = self.mibBuilder.import_symbols('SNMPv2-TC', col_type_name)
                 if imported_type and len(imported_type) > 0:
                     type_instance = imported_type[0]()
             except Exception:
                 pass
+
+            # If not found, use the mapped base type
             if type_instance is None:
                 type_instance = pysnmp_type()
+
             col_obj = self.MibTableColumn(col_oid, type_instance)
             column_objects[col_name] = col_obj
             symbols_to_export[col_name] = col_obj
+
+        # Export all table symbols
         self.mibBuilder.export_symbols(export_name, **symbols_to_export)
+
+        # Create a single row instance
+        # Determine the index type from the index column
         index_col_type = columns[index_col_name]['type']
         index_type_info = columns[index_col_name].get('type_info')
         index_pysnmp_type = self._get_pysnmp_type_from_info(index_col_type, index_type_info, type_map)
+
+        # Determine the appropriate index value based on the type
+        # For integer-like types, use 1; for string-like types, use a simple value
+        # For inherited indexes (AUGMENTS tables), always use integer
         index_value: Any
         if index_is_inherited:
+            # AUGMENTS tables inherit integer index from base table
             index_value = 1
         elif index_pysnmp_type in (Integer32, Integer, Unsigned32, Gauge32, Counter32, Counter64, TimeTicks):
             index_value = 1
         elif index_col_type == 'PhysAddress':
+            # PhysAddress expects hex bytes (MAC address format)
             index_value = "00:11:22:33:44:55"
         elif index_pysnmp_type is OctetString:
+            # For OctetString indexes, use a simple string value
             index_value = "eth0"
         elif index_pysnmp_type is IpAddress:
             index_value = "127.0.0.1"
         elif index_pysnmp_type is ObjectIdentifier:
+            # For ObjectIdentifier indexes, use a simple OID
             index_value = "1.3.6.1.1"
         else:
+            # Default to integer for unknown types
             index_value = 1
+
         snmpContext = context.SnmpContext(self.snmpEngine)
         mibInstrumentation = snmpContext.get_mib_instrum()
         try:
             entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
+
+            # For AUGMENTS tables, construct row instance ID directly as simple integer tuple
+            # This avoids issues with getInstIdFromIndices() using wrong column type for encoding
             if index_is_inherited:
-                rowInstanceId = (index_value,)
+                rowInstanceId = (index_value,)  # Simple integer index tuple
             else:
                 rowInstanceId = entry_imported.getInstIdFromIndices(index_value)
+
+            # Populate columns with default values
             write_vars = []
             failed_columns = []
             for col_name, col_info in columns.items():
@@ -822,19 +738,27 @@ class SNMPAgent:
                 type_info = col_info.get('type_info')
                 pysnmp_type = self._get_pysnmp_type_from_info(col_type_name, type_info, type_map)
                 initial_value = col_info.get('initial')
+
+                # For RowStatus, use createAndGo(4) to create a new active row
+                # (RFC 2579: cannot set active(1) directly on new row)
                 if col_type_name == 'RowStatus':
-                    initial_value = 4
+                    initial_value = 4  # createAndGo
+
                 try:
                     value = self._get_snmp_value(pysnmp_type, initial_value, col_type_name, col_name, type_info)
                     write_vars.append((col_imported.name + rowInstanceId, value))
                 except Exception as e:
                     failed_columns.append(f"{col_name} ({col_type_name})")
                     continue
+
             if write_vars:
+                # Try batch write first (most efficient)
                 try:
                     mibInstrumentation.write_variables(*write_vars)
-                    logger.info(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
+                    print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
                 except Exception as e:
+                    # Batch write fails for tables with TestAndIncr columns (special locking semantics)
+                    # Individual writes handle this correctly - see docs/SNMP_ROW_CREATION_AND_SET_SEMANTICS.md
                     col_names = list(columns.keys())
                     failed_columns = []
                     success_count = 0
@@ -846,295 +770,22 @@ class SNMPAgent:
                             success_count += 1
                         except Exception as col_error:
                             failed_columns.append(f"{col_name} ({col_type})")
+
                     if success_count == len(write_vars):
-                        logger.info(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
+                        print(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
                     elif failed_columns:
-                        msg = f"Could not register table {table_name}: Failed columns: {', '.join(failed_columns)}"
-                        logger.warning(msg)
-                        if getattr(self, 'fail_on_registration_error', False):
-                            log_error(msg)
-                            import sys
-                            sys.exit(1)
+                        print(f"Warning: Could not register table {table_name}: Failed columns: {', '.join(failed_columns)}")
                     else:
                         raise e
         except Exception as e:
-            msg = f"Could not register table {table_name}: {e}"
-            logger.warning(msg)
-            if getattr(self, 'fail_on_registration_error', False):
-                log_error(msg)
-                import sys
-                sys.exit(1)
-
-    def _register_single_table_broken(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
-        """(BROKEN) Previous refactored table registration logic, kept for reference."""
-        # ...existing code moved here for reference...
-        from app.syntax_resolver import resolve_syntax_name, normalise_syntax_name
-        table_oid = tuple(table_data['table']['oid'])
-        entry_oid = tuple(table_data['entry']['oid'])
-        columns = table_data['columns']
-        prefix = table_data['prefix']
-        export_names = [mib]
-        export_name = export_names[0]
-        self._check_table_symbol_not_exported(export_name, table_name)
-        table_obj = self.MibTable(table_oid)
-        entry_obj, index_col_names = self._create_entry_obj(entry_oid, table_data['entry'], columns, export_name, table_name)
-        column_objects, symbols_to_export, failed_columns = self._create_column_objects(columns, resolve_syntax_name, type_map, prefix, entry_obj)
-        symbols_to_export[table_name] = table_obj
-        symbols_to_export[f"{prefix}Entry"] = entry_obj
-        self.mibBuilder.export_symbols(export_name, **symbols_to_export)
-        index_values = self._build_index_values(index_col_names, columns, resolve_syntax_name, type_map)
-        self._write_row_instance(export_names, prefix, index_values, columns, type_map, resolve_syntax_name, failed_columns, mib, table_name)
-
-    def _register_single_table(self, mib: str, table_name: str, table_data: dict[str, Any], type_map: dict[str, Any]) -> None:
-        """Register a single table using the old robust logic from OLD_APP/generator.py."""
-        # This version mimics the old generator's approach: load the compiled MIB, get symbols, handle indexes robustly.
-        # Only supports standard export name (no dunder) for IF-MIB and similar.
-        # Directly update the in-memory JSON model for the table
-        # Find the in-memory JSON for this MIB
-        mib_json = self.mib_jsons.get(mib)
-        if not mib_json:
-            log_error(f"No in-memory JSON found for MIB {mib}")
-            return
-
-        # Find or create the table's row list in the JSON model
-        table_json = mib_json.get(table_name)
-        if table_json is None:
-            table_json = {'rows': []}
-            mib_json[table_name] = table_json
-        if 'rows' not in table_json:
-            table_json['rows'] = []
-
-        # Build a new row with initial values for all columns (including index columns)
-        new_row = {}
-        for col_name, col_info in table_data['columns'].items():
-            # Heuristics for initial values
-            type_name = col_info.get('type', '')
-            # Integer types
-            if type_name in ('Integer32', 'Integer', 'Counter32', 'Gauge32', 'Unsigned32', 'TimeTicks'):
-                value = 0
-            # OctetString (string)
-            elif type_name == 'OctetString':
-                value = 0
-            # Enumerations: set to lowest valid value
-            elif 'enum_values' in col_info and col_info['enum_values']:
-                value = min(col_info['enum_values'].values())
-            # For now, skip all other types
-            else:
-                value = None
-            new_row[col_name] = value
-
-        # Set index columns to 1 (or suitable value)
-        entry = table_data['entry']
-        index_names = entry.get('indexes', [])
-        for idx_col in index_names:
-            if idx_col in new_row:
-                new_row[idx_col] = 1
-
-        table_json['rows'].append(new_row)
-        log_info(f"Created new row in {table_name} for MIB {mib}: {new_row}")
-
-    def _check_table_symbol_not_exported(self, export_name: str, table_name: str) -> None:
-        try:
-            existing = self.mibBuilder.import_symbols(export_name, table_name)
-            if existing:
-                raise Exception(f"Symbol {table_name} already exported at {export_name}")
-        except Exception as e:
-            if "already exported" in str(e):
-                raise
-            pass
-
-    def _create_entry_obj(
-        self,
-        entry_oid: tuple[int, ...],
-        entry_info: dict[str, Any],
-        columns: dict[str, Any],
-        export_name: str,
-        table_name: str
-    ) -> tuple[Any, list[str]]:
-        index_from = entry_info.get('index_from')
-        local_index_cols = [c for c, i in columns.items() if i.get('access') == 'not-accessible']
-        index_col_names = []
-        if index_from:
-            if isinstance(index_from, list):
-                for idx in index_from:
-                    if isinstance(idx, (list, tuple)) and len(idx) == 3:
-                        index_col_names.append(idx[2])
-            index_col_names.extend(local_index_cols)
-        else:
-            if local_index_cols:
-                index_col_names.extend(local_index_cols)
-            else:
-                index_col_names.append(list(columns.keys())[0])
-        try:
-            setIndexNames_args = [(0, export_name, col_name) for col_name in index_col_names]
-            entry_obj = self.MibTableRow(entry_oid).setIndexNames(*setIndexNames_args)
-        except Exception as e:
-            msg = f"Could not register table {table_name}: could not create entry object: {e}"
-            log_warning(msg)
-            if getattr(self, 'fail_on_registration_error', False):
-                log_error(msg)
-                import sys
-                sys.exit(1)
-            raise
-        return entry_obj, index_col_names
-
-    def _create_column_objects(
-        self,
-        columns: dict[str, Any],
-        resolve_syntax_name: Any,
-        type_map: dict[str, Any],
-        prefix: str,
-        entry_obj: Any
-    ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
-        column_objects = {}
-        symbols_to_export = {}
-        failed_columns = []
-        for col_name, col_info in columns.items():
-            col_oid = tuple(col_info['oid'])
-            reported_type = col_info['type']
-            resolved_type = resolve_syntax_name(reported_type)
-            if not resolved_type:
-                fail_reason = f"unknown base type after TC resolution"
-                failed_columns.append(f"{col_name}: {reported_type} ({fail_reason})")
-                continue
-            pysnmp_type = type_map.get(resolved_type if resolved_type is not None else '', Integer32)
-            type_instance = None
-            try:
-                imported_type = self.mibBuilder.import_symbols('SNMPv2-TC', reported_type)
-                if imported_type and len(imported_type) > 0:
-                    type_instance = imported_type[0]()
-            except Exception:
-                pass
-            if type_instance is None:
-                type_instance = pysnmp_type()
-            col_obj = self.MibTableColumn(col_oid, type_instance)
-            column_objects[col_name] = col_obj
-            symbols_to_export[col_name] = col_obj
-        return column_objects, symbols_to_export, failed_columns
-
-    def _build_index_values(
-        self,
-        index_col_names: list[str],
-        columns: dict[str, Any],
-        resolve_syntax_name: Any,
-        type_map: dict[str, Any]
-    ) -> list[str | int]:
-        index_values: list[str | int] = []
-        for col_name in index_col_names:
-            col_info = columns.get(col_name)
-            if not col_info:
-                index_values.append(1)
-                continue
-            reported_type = col_info['type']
-            resolved_type = resolve_syntax_name(reported_type)
-            pysnmp_type = type_map.get(resolved_type if resolved_type is not None else '', Integer32)
-            if pysnmp_type in (Integer32, Integer, Unsigned32, Gauge32, Counter32, Counter64, TimeTicks):
-                index_values.append(1)
-            elif resolved_type == 'OctetString':
-                index_values.append("eth0")
-            elif pysnmp_type is IpAddress:
-                index_values.append("127.0.0.1")
-            elif pysnmp_type is ObjectIdentifier:
-                index_values.append("1.3.6.1.1")
-            else:
-                index_values.append(1)
-        return index_values
-
-    def _write_row_instance(
-        self,
-        export_names: list[str],
-        prefix: str,
-        index_values: list[str | int],
-        columns: dict[str, Any],
-        type_map: dict[str, Any],
-        resolve_syntax_name: Any,
-        failed_columns: list[str],
-        mib: str,
-        table_name: str
-    ) -> None:
-        snmpContext = context.SnmpContext(self.snmpEngine)
-        mibInstrumentation = snmpContext.get_mib_instrum()
-        entry_imported = None
-        for export_name in export_names:
-            try:
-                entry_imported = self.mibBuilder.import_symbols(export_name, f"{prefix}Entry")[0]
-                break
-            except Exception:
-                continue
-        if entry_imported is None:
-            raise Exception(f"Could not import entry {prefix}Entry from any export name.")
-        # DEBUG: Log entry_imported and index_values before calling getInstIdFromIndices
-        logger.debug(f"entry_imported: {entry_imported}")
-        logger.debug(f"index_values: {index_values}")
-        rowInstanceId = entry_imported.getInstIdFromIndices(*index_values)
-        write_vars = []
-        for col_name, col_info in columns.items():
-            col_imported = None
-            for export_name in export_names:
-                try:
-                    col_imported = self.mibBuilder.import_symbols(export_name, col_name)[0]
-                    break
-                except Exception:
-                    continue
-            if col_imported is None:
-                raise Exception(f"Could not import column {col_name} from any export name.")
-            reported_type = col_info['type']
-            resolved_type = resolve_syntax_name(reported_type)
-            if not resolved_type:
-                continue
-            pysnmp_type = type_map.get(resolved_type if resolved_type is not None else '', Integer32)
-            initial_value = col_info.get('initial')
-            if reported_type == 'RowStatus':
-                initial_value = 4
-            try:
-                value = self._get_snmp_value(pysnmp_type, initial_value, reported_type, col_name, col_info.get('type_info'))
-                write_vars.append((col_imported.name + rowInstanceId, value))
-            except Exception as e:
-                fail_reason = f"base type supported but value model incompatible: {e}"
-                failed_columns.append(f"{col_name}: {reported_type} -> {resolved_type} ({fail_reason})")
-                continue
-        if write_vars:
-            try:
-                mibInstrumentation.write_variables(*write_vars)
-                log_info(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance")
-            except Exception as e:
-                col_names = list(columns.keys())
-                success_count = 0
-                for idx, (oid, value) in enumerate(write_vars):
-                    col_name = col_names[idx] if idx < len(col_names) else f"column_{idx}"
-                    reported_type = columns[col_name]['type'] if col_name in columns else "unknown"
-                    resolved_type = resolve_syntax_name(reported_type) if col_name in columns else None
-                    try:
-                        mibInstrumentation.write_variables((oid, value))
-                        success_count += 1
-                    except Exception as col_error:
-                        fail_reason = f"base type supported but value model incompatible: {col_error}"
-                        failed_columns.append(f"{col_name}: {reported_type} -> {resolved_type} ({fail_reason})")
-                if success_count == len(write_vars):
-                    log_info(f"Loaded {mib} table {table_name}: {len(columns)} columns, 1 row instance (individual writes)")
-                elif failed_columns:
-                    msg = f"Could not register table {table_name}: Failed columns: {'; '.join(failed_columns)}"
-                    log_warning(msg)
-                    if getattr(self, 'fail_on_registration_error', False):
-                        log_error(msg)
-                        import sys
-                        sys.exit(1)
-                else:
-                    raise e
-        if failed_columns:
-            msg = f"Could not register table {table_name}: Failed columns: {'; '.join(failed_columns)}"
-            log_warning(msg)
-            if getattr(self, 'fail_on_registration_error', False):
-                log_error(msg)
-                import sys
-                sys.exit(1)
+            print(f"Warning: Could not register table {table_name}: {e}")
 
     def run(self) -> None:
         """Run the SNMP agent (blocking)."""
-        log_info(f'SNMP agent running on {self.host}:{self.port}')
-        log_info('Community: public')
-        log_info(f'Try: snmpwalk -v2c -c public localhost:{self.port}')
-        log_info('Press Ctrl+C to stop')
+        print(f'SNMP agent running on {self.host}:{self.port}')
+        print(f'Community: public')
+        print(f'Try: snmpwalk -v2c -c public localhost:{self.port}')
+        print('Press Ctrl+C to stop')
 
         # Register an imaginary never-ending job to keep I/O dispatcher running forever
         self.snmpEngine.transport_dispatcher.job_started(1)
@@ -1143,7 +794,7 @@ class SNMPAgent:
         try:
             self.snmpEngine.open_dispatcher()
         except KeyboardInterrupt:
-            log_info('Shutting down agent')
+            print('\nShutting down agent')
         finally:
             self.snmpEngine.close_dispatcher()
 
@@ -1161,6 +812,7 @@ class SNMPAgent:
             value: Value to send with the trap
             trap_type: 'trap' or 'inform'
         """
+        logger = logging.getLogger(__name__)
         try:
             # Create a notification type with the OID and value
             result = await send_notification(

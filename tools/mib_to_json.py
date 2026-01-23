@@ -54,11 +54,13 @@ def extract_mib_info(mib_py_path: str, mib_name: str) -> Dict[str, Any]:
 
     missing_types = set()
     for symbol_name, symbol_obj in mib_symbols.items():
-        # Only process scalars and columns
-        if hasattr(cast(Any, symbol_obj), 'getName') and hasattr(cast(Any, symbol_obj), 'getSyntax'):
-            oid = cast(Any, symbol_obj).getName()
-            syntax = cast(Any, symbol_obj).getSyntax().__class__.__name__
-            access = getattr(cast(Any, symbol_obj), 'getMaxAccess', lambda: 'unknown')()
+        # Only process scalars and columns, skip classes/types
+        if not hasattr(symbol_obj, '__class__') or isinstance(symbol_obj, type):
+            continue
+        if hasattr(symbol_obj, 'getName') and hasattr(symbol_obj, 'getSyntax'):
+            oid = symbol_obj.getName()
+            syntax = symbol_obj.getSyntax().__class__.__name__
+            access = getattr(symbol_obj, 'getMaxAccess', lambda: 'unknown')()
             result[symbol_name] = {
                 'oid': oid,
                 'type': syntax,

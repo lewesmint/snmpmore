@@ -1,16 +1,10 @@
 import os
-import re
 import json
 from typing import Dict, Any, cast, Optional
 from pysnmp.smi import builder
 
 
-from app.app_logger import AppLogger
-
-logger = AppLogger.get(__name__)
-
 class BehaviourGenerator:
-
     """Handles generation of behaviour JSON from compiled MIB Python files."""
     def __init__(self, output_dir: str = 'mock-behaviour') -> None:
         self.output_dir = output_dir
@@ -40,7 +34,7 @@ class BehaviourGenerator:
         with open(json_path, 'w') as f:
             json.dump(info, f, indent=2)
 
-        logger.info(f'Behaviour JSON written to {json_path}')
+        print(f'Behaviour JSON written to {json_path}')
         return json_path
 
     def _parse_mib_name_from_py(self, compiled_py_path: str) -> str:
@@ -48,6 +42,8 @@ class BehaviourGenerator:
         with open(compiled_py_path, 'r', encoding='utf-8') as f:
             for line in f:
                 if 'mibBuilder.exportSymbols' in line:
+                    # Example: mibBuilder.exportSymbols("MY-AGENT-MIB",
+                    import re
                     m = re.search(r'mibBuilder\.exportSymbols\(["\"]([A-Za-z0-9\-_.]+)["\"]', line)
                     if m:
                         return m.group(1)
@@ -263,9 +259,9 @@ class BehaviourGenerator:
             if 'Date' in symbol_name or 'Time' in symbol_name:
                 # Return hex string for 2000-01-01 00:00:00.0
                 return '07D0010100000000'
-            return ''  # Use empty string for OctetString
+            return 'unset'
         elif base_type == 'ObjectIdentifier':
-            return '1.3.6.1.1'  # Use a valid OID string
+            return '0.0'
         elif base_type in ('Integer32', 'Integer', 'Gauge32', 'Unsigned32'):
             return 0
         elif base_type in ('Counter32', 'Counter64'):

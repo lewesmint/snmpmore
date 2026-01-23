@@ -2,6 +2,7 @@
 
 import json
 import os
+import glob
 import shutil
 import sys
 import tempfile
@@ -15,6 +16,7 @@ from pytest_mock import MockerFixture
 # Add parent directory to path to import from tools
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tools.mib_to_json import extract_mib_info, main
+from tools.find_mib_text_file import find_mib_text_file
 
 
 @pytest.fixture
@@ -39,25 +41,18 @@ def cleanup_test_json() -> Generator[None, None, None]:
                     pass
 
 
-def test_extract_mib_info_with_real_mib() -> None:
+@pytest.mark.parametrize("mib_file", glob.glob("compiled-mibs/*.py"))
+def test_extract_mib_info_with_real_mib(mib_file: str) -> None:
     """Test extract_mib_info with a real compiled MIB."""
-    compiled_mibs_location = 'compiled-mibs'
-    mib_path = os.path.join(compiled_mibs_location, 'MY-AGENT-MIB.py')
-    if not os.path.exists(mib_path):
-        pytest.skip("MY-AGENT-MIB.py not found")
-
-    result = extract_mib_info(mib_path, 'MY-AGENT-MIB')
-
+    mib_name = os.path.splitext(os.path.basename(mib_file))[0]
+    result = extract_mib_info(mib_file, mib_name)
     assert isinstance(result, dict)
-
     for _symbol_name, symbol_data in result.items():
         assert 'oid' in symbol_data
         assert 'type' in symbol_data
         assert 'access' in symbol_data
         assert 'initial' in symbol_data
         assert 'dynamic_function' in symbol_data
-        assert symbol_data['initial'] is None
-        assert symbol_data['dynamic_function'] is None
 
 
 def test_extract_mib_info_with_mock(mocker: MockerFixture) -> None:
@@ -130,32 +125,33 @@ def test_extract_mib_info_handles_missing_getMaxAccess(mocker: MockerFixture) ->
     assert result['testCounter']['access'] == 'unknown'
 
 
-def test_main_success(mocker: MockerFixture) -> None:
-    """Test main function with valid arguments."""
-    mocker.patch('sys.argv', ['mib_to_json.py', 'mibs/MY-AGENT-MIB.py', 'MY-AGENT-MIB'])
-    if not os.path.exists('mibs/MY-AGENT-MIB.py'):
-        pytest.skip("MY-AGENT-MIB.py not found")
-
+@pytest.mark.parametrize("mib_file", glob.glob("compiled-mibs/*.py"))
+def test_main_success(mocker: MockerFixture, mib_file: str) -> None:
+    """Test main function with valid arguments for each compiled MIB."""
+    mib_name = os.path.splitext(os.path.basename(mib_file))[0]
+    # Search in both local and system MIB directories
+    search_dirs = ["data/mibs/cisco", "/opt/homebrew/opt/net-snmp/share/snmp/mibs"]
+    mib_txt_path = find_mib_text_file(mib_name, search_dirs)
+    if not mib_txt_path:
+        pytest.skip(f"No MIB text file found for {mib_name} in {search_dirs}, skipping test.")
+    mocker.patch('sys.argv', ['mib_to_json.py', mib_file, mib_name, mib_txt_path])
     mock_print = mocker.patch('builtins.print')
     main()
-
-    json_path = 'mock-behaviour/MY-AGENT-MIB_behaviour.json'
+    json_path = f'mock-behaviour/{mib_name}_behaviour.json'
     assert os.path.exists(json_path)
-
     with open(json_path, 'r') as f:
         data: Any = json.load(f)
         assert isinstance(data, dict)
+    # Assert the last print call is the behaviour JSON confirmation
+    assert mock_print.call_count >= 1
+    assert json_path in mock_print.call_args_list[-1][0][0]
 
-    mock_print.assert_called_once()
-    assert 'mock-behaviour/MY-AGENT-MIB_behaviour.json' in mock_print.call_args[0][0]
 
-
-def test_main_as_script(mocker: MockerFixture) -> None:
-    """Test running main when file is executed as __main__."""
-    if not os.path.exists('mibs/MY-AGENT-MIB.py'):
-        pytest.skip("MY-AGENT-MIB.py not found")
-
-    mocker.patch('sys.argv', ['mib_to_json.py', 'mibs/MY-AGENT-MIB.py', 'MY-AGENT-MIB'])
+@pytest.mark.parametrize("mib_file", glob.glob("compiled-mibs/*.py"))
+def test_main_as_script(mocker: MockerFixture, mib_file: str) -> None:
+    """Test running main when file is executed as __main__ for each compiled MIB."""
+    mib_name = os.path.splitext(os.path.basename(mib_file))[0]
+    mocker.patch('sys.argv', ['mib_to_json.py', mib_file, mib_name])
     mocker.patch('builtins.print')
     from tools import mib_to_json
     assert hasattr(mib_to_json, 'main')

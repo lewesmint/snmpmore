@@ -4,31 +4,29 @@
 
 import pytest
 from app.agent import SNMPAgent
-from typing import Generator
-from unittest.mock import MagicMock
+from typing import Generator, Any
 from pytest_mock import MockerFixture
 
 
 @pytest.fixture
-def agent() -> SNMPAgent:
+def agent(mocker: MockerFixture) -> SNMPAgent:
     """Create a mocked SNMPAgent for testing."""
-    from unittest.mock import MagicMock
     agent = SNMPAgent.__new__(SNMPAgent)
-    agent.mibBuilder = MagicMock()
+    agent.mibBuilder = mocker.MagicMock()
     agent.mibBuilder.import_symbols.return_value = []
-    agent.snmpEngine = MagicMock()
+    agent.snmpEngine = mocker.MagicMock()
     # Patch SNMPAgent dependencies for table registration
-    agent.MibTable = MagicMock()
-    agent.MibTableRow = MagicMock()
-    agent.MibTableColumn = MagicMock()
-    agent.MibScalar = MagicMock()
+    agent.MibTable = mocker.MagicMock()
+    agent.MibTableRow = mocker.MagicMock()
+    agent.MibTableColumn = mocker.MagicMock()
+    agent.MibScalar = mocker.MagicMock()
     return agent
 
 
 
 
 @pytest.fixture
-def mock_context(mocker: MockerFixture) -> Generator[MagicMock, None, None]:
+def mock_context(mocker: MockerFixture) -> Generator[Any, None, None]:
     """Mock the SnmpContext using pytest-mock."""
     mock = mocker.patch('app.agent.context.SnmpContext')
     mock.return_value.get_mib_instrum.return_value = mocker.MagicMock()
@@ -43,7 +41,7 @@ def mock_agent_methods(agent: SNMPAgent, mocker: MockerFixture) -> Generator[Non
     yield
 
 
-def test_single_column_index(agent: SNMPAgent, mock_context: MagicMock, mock_agent_methods: None) -> None:  # noqa: ARG001
+def test_single_column_index(agent: SNMPAgent, mock_context: Any, mock_agent_methods: None) -> None:  # noqa: ARG001
     """Test table registration with a single column index."""
     table_data = {
         'table': {'oid': [1, 3, 6, 1, 2, 1, 2, 2]},
@@ -57,7 +55,7 @@ def test_single_column_index(agent: SNMPAgent, mock_context: MagicMock, mock_age
     agent._register_single_table('IF-MIB', 'ifTable', table_data, {})
 
 
-def test_augments_inherited_index(agent: SNMPAgent, mock_context: MagicMock, mock_agent_methods: None) -> None:  # noqa: ARG001
+def test_augments_inherited_index(agent: SNMPAgent, mock_context: Any, mock_agent_methods: None) -> None:  # noqa: ARG001
     """Test table registration with AUGMENTS inherited index."""
     table_data = {
         'table': {'oid': [1, 3, 6, 1, 2, 1, 31, 1, 1]},
@@ -71,7 +69,7 @@ def test_augments_inherited_index(agent: SNMPAgent, mock_context: MagicMock, moc
     agent._register_single_table('IF-MIB', 'ifXTable', table_data, {})
 
 
-def test_multi_column_index_inherited_and_local(agent: SNMPAgent, mock_context: MagicMock, mock_agent_methods: None) -> None:  # noqa: ARG001
+def test_multi_column_index_inherited_and_local(agent: SNMPAgent, mock_context: Any, mock_agent_methods: None) -> None:  # noqa: ARG001
     """Test table registration with multi-column index (inherited + local)."""
     table_data = {
         'table': {'oid': [1, 3, 6, 1, 2, 1, 31, 4]},

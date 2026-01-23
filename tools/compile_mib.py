@@ -7,8 +7,8 @@ Usage:
     python compile_mib.py <mib_file_path> [output_dir]
 
 Examples:
-    python compile_mib.py MY-AGENT-MIB.txt
-    python compile_mib.py data/mibs/UDP-MIB.txt compiled-mibs
+    python compile_mib.py CISCO-ALARM-MIB.txt
+
 """
 from pysmi.reader.localfile import FileReader
 from pysmi.searcher import PyFileSearcher

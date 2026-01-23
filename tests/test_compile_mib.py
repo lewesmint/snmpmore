@@ -48,24 +48,24 @@ def _import_with_mocks(
 
 def test_compile_mib_success(mocker: pytest_mock.MockerFixture) -> None:
     """Test successful MIB compilation."""
-    mock_results = {'MY-AGENT-MIB': 'compiled'}
+    mock_results = {'CISCO-ALARM-MIB': 'compiled'}
     output = _import_with_mocks(mock_results, mocker)
-    assert 'MY-AGENT-MIB: compiled' in output
+    assert 'CISCO-ALARM-MIB: compiled' in output
 
 
 def test_compile_mib_failure(mocker: pytest_mock.MockerFixture) -> None:
     """Test MIB compilation failure."""
-    mock_results = {'MY-AGENT-MIB': 'failed'}
+    mock_results = {'CISCO-ALARM-MIB': 'failed'}
     output = _import_with_mocks(mock_results, mocker)
-    assert 'MY-AGENT-MIB: failed' in output
+    assert 'CISCO-ALARM-MIB: failed' in output
 
 
 def test_compile_mib_partial_success(mocker: pytest_mock.MockerFixture) -> None:
     """Test MIB compilation with partial success."""
     mock_results = {
-        'MY-AGENT-MIB': 'compiled',
+        'CISCO-ALARM-MIB': 'compiled',
         'SNMPv2-SMI': 'missing'
     }
     output = _import_with_mocks(mock_results, mocker)
-    assert 'MY-AGENT-MIB: compiled' in output
+    assert 'CISCO-ALARM-MIB: compiled' in output
     assert 'SNMPv2-SMI: missing' in output

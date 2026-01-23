@@ -62,6 +62,18 @@ class AppLogger:
         return logging.getLogger(name)
 
     @staticmethod
+    def warning(msg: str, *args: Any, **kwargs: Any) -> None:
+        logging.getLogger().warning(msg, *args, **kwargs)
+
+    @staticmethod
+    def error(msg: str, *args: Any, **kwargs: Any) -> None:
+        logging.getLogger().error(msg, *args, **kwargs)
+
+    @staticmethod
+    def info(msg: str, *args: Any, **kwargs: Any) -> None:
+        logging.getLogger().info(msg, *args, **kwargs)
+
+    @staticmethod
     def _configure(config: LoggingConfig) -> None:
         level_name = config.level.upper()
         level = logging._nameToLevel.get(level_name, logging.INFO)

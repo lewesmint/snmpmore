@@ -9,7 +9,7 @@ import pytest
 
 from pysnmp.smi import builder
 from pyasn1.type.univ import OctetString
-from unittest.mock import MagicMock
+from pytest_mock import MockerFixture
 
 # Add parent directory to path to import from tools
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -43,26 +43,24 @@ def test_init(controller: DynamicMibController) -> None:
     assert controller.table_rows[2] == [3, 'sensor_c', 45, 'warning']
 
 
-def test_register_scalars(controller: DynamicMibController, mib_builder: builder.MibBuilder) -> None:
+def test_register_scalars(controller: DynamicMibController, mib_builder: builder.MibBuilder, mocker: MockerFixture) -> None:
     """Test register_scalars method."""
-    with MagicMock() as mock_export:
-        setattr(mib_builder, 'export_symbols', mock_export)
-        controller.register_scalars(mib_builder)
-        mock_export.assert_called_once()
-        call_args = mock_export.call_args[0]
-        assert call_args[0] == '__MY_MIB'
-        assert len(call_args) - 1 == 3  # 3 scalar instances
+    mock_export = mocker.patch.object(mib_builder, 'export_symbols')
+    controller.register_scalars(mib_builder)
+    mock_export.assert_called_once()
+    call_args = mock_export.call_args[0]
+    assert call_args[0] == '__MY_MIB'
+    assert len(call_args) - 1 == 3  # 3 scalar instances
 
 
-def test_register_table(controller: DynamicMibController, mib_builder: builder.MibBuilder) -> None:
+def test_register_table(controller: DynamicMibController, mib_builder: builder.MibBuilder, mocker: MockerFixture) -> None:
     """Test register_table method."""
-    with MagicMock() as mock_export:
-        setattr(mib_builder, 'export_symbols', mock_export)
-        controller.register_table(mib_builder)
-        assert mock_export.call_count == 3  # One call per row
-        for call in mock_export.call_args_list:
-            assert call[0][0] == '__MY_MIB'
-            assert len(call[0]) - 1 == 4  # 4 columns per row
+    mock_export = mocker.patch.object(mib_builder, 'export_symbols')
+    controller.register_table(mib_builder)
+    assert mock_export.call_count == 3  # One call per row
+    for call in mock_export.call_args_list:
+        assert call[0][0] == '__MY_MIB'
+        assert len(call[0]) - 1 == 4  # 4 columns per row
 
 
 def test_update_table(controller: DynamicMibController) -> None:
