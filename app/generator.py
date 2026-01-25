@@ -1,12 +1,9 @@
-
 import os
 import re
 import json
 from typing import Dict, Any, cast, Optional
 from pysnmp.smi import builder
 from app.app_logger import AppLogger
-
-from app.type_registry import TypeRegistry
 
 logger = AppLogger.get(__name__)
 
@@ -17,7 +14,7 @@ class BehaviourGenerator:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def generate(self, compiled_py_path: str, mib_name: Optional[str] = None) -> str:
+    def generate(self, compiled_py_path: str, mib_name: Optional[str] = None, force_regenerate: bool = True) -> str:
         """Generate behaviour JSON from a compiled MIB Python file.
 
         Args:
@@ -27,15 +24,85 @@ class BehaviourGenerator:
         Returns:
             Path to the generated behaviour JSON file
         """
+
         if mib_name is None:
             mib_name = self._parse_mib_name_from_py(compiled_py_path)
         json_path = os.path.join(self.output_dir, f'{mib_name}_behaviour.json')
 
         if os.path.exists(json_path):
-            return json_path
+            if force_regenerate:
+                os.remove(json_path)
+            else:
+                return json_path
 
         # Extract MIB information
         info = self._extract_mib_info(compiled_py_path, mib_name)
+
+        # Ensure table and entry symbols are recorded with their type, and each table has at least one row
+        for name, symbol_info in info.items():
+            # Record type for tables and entries
+            if isinstance(symbol_info, dict):
+                symbol_type = symbol_info.get('type', None)
+                if (symbol_type == 'MibTable' or symbol_type == 'MibTableRow'):
+                    if 'type' not in symbol_info:
+                        symbol_info['type'] = 'NoneType'
+                # Always ensure the table object exists and has a 'rows' field (type-based)
+                if symbol_type == 'MibTable':
+                    if 'rows' not in symbol_info or not isinstance(symbol_info['rows'], list):
+                        symbol_info['rows'] = []
+                    # Add at least one default row if empty
+                    if not symbol_info['rows']:
+                        # Try to find the corresponding entry and columns
+                        table_prefix = name[:-5] if name.endswith('Table') else name
+                        entry_name = f"{table_prefix}Entry"
+                        entry_info = info.get(entry_name, {})
+                        # If entry_info exists and has an OID, try to extract index columns from compiled MIB
+                        # If not already present, add 'indexes' field to entry_info
+                        if entry_info and 'indexes' not in entry_info:
+                            # Try to find index columns from the compiled MIB symbols
+                            # This is a best-effort: look for setIndexNames in the compiled MIB
+                            # (We assume the symbol_name is the same as entry_name)
+                            try:
+                                mibBuilder = builder.MibBuilder()
+                                mibBuilder.add_mib_sources(builder.DirMibSource(os.path.dirname(compiled_py_path)))
+                                mibBuilder.load_modules(mib_name)
+                                mib_symbols = mibBuilder.mibSymbols[mib_name]
+                                entry_obj = mib_symbols.get(entry_name)
+                                if entry_obj and hasattr(entry_obj, 'getIndexNames'):
+                                    index_names = [idx[2] for idx in entry_obj.getIndexNames()]
+                                    entry_info['indexes'] = index_names
+                            except Exception as e:
+                                logger.warning(f"Could not extract index columns for {entry_name}: {e}")
+                        # Find columns: direct children of entry OID
+                        entry_oid = tuple(entry_info.get('oid', []))
+                        columns = []
+                        for col_name, col_info in info.items():
+                            if not isinstance(col_info, dict):
+                                continue
+                            col_oid = tuple(col_info.get('oid', []))
+                            if col_name in [name, entry_name]:
+                                continue
+                            if len(col_oid) == len(entry_oid) + 1 and col_oid[:len(entry_oid)] == entry_oid:
+                                columns.append(col_name)
+                        # Build a default row with sensible values
+                        default_row = {}
+                        if not hasattr(self, '_type_registry'):
+                            self._type_registry = self._load_type_registry()
+                        index_names = entry_info.get('indexes', [])
+                        for col in columns:
+                            col_info = info[col]
+                            col_type = col_info.get('type', '')
+                            type_info = self._type_registry.get(col_type, {})
+                            # If this column is an index, set to 1, else use default
+                            if col in index_names:
+                                default_row[col] = 1
+                                col_info['initial'] = 1
+                            else:
+                                value = self._get_default_value_from_type_info(type_info, col)
+                                default_row[col] = value
+                                col_info['initial'] = value
+                        if default_row:
+                            symbol_info['rows'].append(default_row)
 
         # Write to JSON file
         with open(json_path, 'w') as f:
@@ -71,8 +138,12 @@ class BehaviourGenerator:
         mibBuilder.load_modules(mib_name)
         mib_symbols = mibBuilder.mibSymbols[mib_name]
 
+        if not isinstance(mib_symbols, dict):
+            logger.error(f"mib_symbols for {mib_name} is not a dict (type={type(mib_symbols)}). Value: {repr(mib_symbols)[:500]}")
+            # Place a breakpoint on the next line to inspect the value of mib_symbols
+            raise TypeError(f"mib_symbols for {mib_name} is not a dict; cannot extract symbols.")
+
         result: Dict[str, Any] = {}
-        from pysnmp.smi import instrum, exval, builder as smi_builder
         for symbol_name, symbol_obj in mib_symbols.items():
             symbol_name_str: str = str(cast(Any, symbol_name))
             if not (hasattr(symbol_obj, 'getName') and hasattr(symbol_obj, 'getSyntax')):
@@ -80,19 +151,20 @@ class BehaviourGenerator:
             try:
                 oid = symbol_obj.getName()
                 syntax_obj = symbol_obj.getSyntax()
-                syntax = syntax_obj.__class__.__name__
                 access = getattr(symbol_obj, 'getMaxAccess', lambda: 'unknown')()
             except TypeError:
                 continue
 
-            # Load the canonical type registry from JSON (singleton per process)
+
+
+            # Always use canonical type_info from the registry
+            if syntax_obj is not None and syntax_obj.__class__.__name__ != 'NoneType':
+                type_name = syntax_obj.__class__.__name__
+            else:
+                type_name = symbol_obj.__class__.__name__
             if not hasattr(self, '_type_registry'):
                 self._type_registry = self._load_type_registry()
-            type_info = self._type_registry.get(syntax)
-            if type_info is None:
-                logger.warning(f"No canonical type info found for type {syntax} (symbol {symbol_name_str})")
-            else:
-                logger.debug(f"Using canonical type info for type {syntax}: {type_info}")
+            type_info = self._type_registry.get(type_name, {})
 
             # Provide sensible default initial values based on type
             initial_value = self._get_default_value_from_type_info(type_info or {}, symbol_name_str)
@@ -100,8 +172,7 @@ class BehaviourGenerator:
 
             result[symbol_name_str] = {
                 'oid': oid,
-                'type': syntax,
-                'type_info': type_info,
+                'type': type_name,
                 'access': access,
                 'initial': initial_value,
                 'dynamic_function': dynamic_func
@@ -126,7 +197,7 @@ class BehaviourGenerator:
 
     def _detect_inherited_indexes(self, result: Dict[str, Any],
                                    table_entries: Dict[str, Any],
-                                   mib_name: str) -> None:
+                                   _mib_name: str) -> None:
         """Detect tables that inherit their index from another table (AUGMENTS pattern).
 
         This is common for tables like ifXTable which AUGMENTS ifEntry from ifTable,
@@ -175,8 +246,6 @@ class BehaviourGenerator:
         Returns:
             Dictionary with 'base_type', 'enums' (if applicable), 'constraints', etc.
         """
-        from pysnmp.proto.rfc1902 import Integer32, Integer, OctetString, ObjectIdentifier, IpAddress, Counter32, Counter64, Gauge32, Unsigned32, TimeTicks
-
         # Determine base type by checking the class hierarchy (MRO)
         # For TextualConventions, we want the actual base SNMP type, not the TC name
         base_type = syntax_name
@@ -251,25 +320,53 @@ class BehaviourGenerator:
 
         # If it has enums, use a sensible default enum value
         if enums:
-            # Special cases for known enum fields
-            if symbol_name in ('ifAdminStatus', 'ifOperStatus'):
-                return 2  # down(2)
-            elif symbol_name == 'ifType':
-                return 6  # ethernetCsmacd(6)
-            elif symbol_name.endswith('Status') and 'notInService' in enums:
-                # RowStatus should be active(1) for existing rows
-                return 1
-            elif 'unknown' in enums:
-                return enums['unknown']
-            elif 'other' in enums:
-                return enums['other']
-            else:
+            # Support both dict and list-of-dict enum representations
+            if isinstance(enums, dict):
+                # Special cases for known enum fields
+                if symbol_name in ('ifAdminStatus', 'ifOperStatus'):
+                    return 2  # down(2)
+                elif symbol_name == 'ifType':
+                    return 6  # ethernetCsmacd(6)
+                elif symbol_name.endswith('Status') and 'notInService' in enums:
+                    # RowStatus should be active(1) for existing rows
+                    return 1
+                elif 'unknown' in enums:
+                    return enums['unknown']
+                elif 'other' in enums:
+                    return enums['other']
+                else:
+                    # Return the first valid enum value (not 0 if possible)
+                    for _name, value in enums.items():
+                        if value != 0:
+                            return value
+                    # If all are 0 or only one value, return it
+                    return list(enums.values())[0] if enums else 0
+            elif isinstance(enums, list):
+                # enums is a list of dicts: [{'name': ..., 'value': ...}, ...]
+                # Special cases for known enum fields
+                if symbol_name in ('ifAdminStatus', 'ifOperStatus'):
+                    return 2  # down(2)
+                elif symbol_name == 'ifType':
+                    return 6  # ethernetCsmacd(6)
+                elif symbol_name.endswith('Status'):
+                    for enum in enums:
+                        if enum.get('name') == 'notInService':
+                            return 1
+                for enum in enums:
+                    if enum.get('name') == 'unknown':
+                        return enum.get('value')
+                for enum in enums:
+                    if enum.get('name') == 'other':
+                        return enum.get('value')
                 # Return the first valid enum value (not 0 if possible)
-                for name, value in enums.items():
+                for enum in enums:
+                    value = enum.get('value')
                     if value != 0:
                         return value
                 # If all are 0 or only one value, return it
-                return list(enums.values())[0] if enums else 0
+                if enums:
+                    return enums[0].get('value', 0)
+                return 0
 
         # Type-based defaults
         if base_type in ('DisplayString', 'OctetString'):

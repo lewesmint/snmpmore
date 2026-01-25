@@ -123,6 +123,7 @@ class SNMPAgent:
         app_config = app_config or AppConfig(config_path)
         mibs = app_config.get('mibs', [])
         registry = TypeRegistry()
+        self.type_registry = registry
         compiled_dir = os.path.join(os.path.dirname(__file__), '..', 'compiled-mibs')
         compiled_dir = os.path.abspath(compiled_dir)
         # Build mapping: exported MIB name -> filename
@@ -201,7 +202,7 @@ class SNMPAgent:
     def OLD__init__(
         self,
         host: str = '127.0.0.1',
-        port: int = 161,
+        port: int = 11161,
         config_path: str = 'agent_config.yaml',
         app_config: Optional[AppConfig] = None,
         fail_on_registration_error: bool = False,
@@ -596,8 +597,19 @@ class SNMPAgent:
                 if type_name == 'DateAndTime' and isinstance(initial_value, str) and len(initial_value) == 16:
                     return OctetString(hexValue=initial_value)
                 return OctetString(str(initial_value))
-            if pysnmp_type is IpAddress:
-                return IpAddress(str(initial_value) or '0.0.0.0')
+            # If type is not a known SNMP base type, delegate to SNMPTypeInitializer plugin system
+            from app.snmp_type_initializer import SNMPTypeInitializer
+            known_base_types = (
+                Integer32, Integer, Counter32, Counter64, Gauge32, Unsigned32, TimeTicks, OctetString, ObjectIdentifier
+            )
+            if not pysnmp_type or pysnmp_type not in known_base_types:
+                col_info = {'type': type_name}
+                if initial_value is not None:
+                    col_info['initial'] = initial_value
+                try:
+                    return SNMPTypeInitializer(self.mibBuilder, self.type_registry).initialize(col_info)
+                except Exception as e:
+                    raise RuntimeError(f"No initializer for type '{type_name}' and no value provided: {e}")
             if pysnmp_type is ObjectIdentifier:
                 # Handle ObjectIdentifier - convert string like "0.0" to tuple
                 if isinstance(initial_value, str):
@@ -605,9 +617,10 @@ class SNMPAgent:
                 return pysnmp_type(initial_value)
             return pysnmp_type(initial_value)
         # Defaults
+        from app.snmp_type_initializer import SNMPTypeInitializer
         default_map = {
             OctetString: OctetString(''),
-            IpAddress: IpAddress('0.0.0.0'),
+            IpAddress: SNMPTypeInitializer(self.mibBuilder, self.type_registry).initialize({'type': 'IpAddress'}),
             TimeTicks: TimeTicks(0),
             ObjectIdentifier: ObjectIdentifier('0.0'),  # Default OID for null values
         }

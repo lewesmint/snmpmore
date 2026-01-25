@@ -1,0 +1,22 @@
+'SNMPv2-MIB::sysObjectID', 'SNMPv2-MIB::sysORID', 'SNMPv2-MIB::snmpTrapOID', 'SNMPv2-MIB::snmpTrapEnterprise', 'IF-MIB::ifSpecific', 'IF-MIB::ifTestCode']}
+2026-01-25 16:00:50.513 WARNING app.generator [MainThread] No canonical type info found for type NoneType (symbol ifXTable)
+2026-01-25 16:00:50.513 WARNING app.generator [MainThread] No canonical type info found for type NoneType (symbol ifXEntry)
+2026-01-25 16:00:50.513 DEBUG app.generator [MainThread] Using canonical type info for type DisplayString: {'base_type': 'OctetString', 'display_hint': '255a', 'size': {'type': 'range', 'min': 0, 'max': 255}, 'constraints': [{'type': 'ValueSizeCons
+                                                                                                                                                                                                                                  
+
+aints_repr': None, 'enums': [{'value': 1, 'name': 'true'}, {'value': 2, 'name': 'false'}], 'used_by': ['IF-MIB::ifPromiscuousMode', 'IF-MIB::ifConnectorPresent', 'HOST-RESOURCES-MIB::hrDiskStorageRemoveble', 'HOST-RESOURCES-MIB::hrFSBootable']}
+2026-01-25 16:00:50.514 ERROR app.snmp_agent [MainThread] Failed to generate behavior JSON for /Users/mintz/code/snmpmore/compiled-mibs/IF-MIB.py: 'list' object has no attribute 'items'
+2026-01-25 16:00:50.514 INFO app.snmp_agent [MainThread] Generating behavior JSON for: /Users/mintz/code/snmpmore/compiled-mibs/HOST-RESOURCES-MIB.py
+2026-01-25 16:00:50.554 DEBUG app.generator [MainThread] Using canonical type info for type TimeTicks: {'base_type': None, 'display_hint': None, 'size': None, 'constraints': [{'type': 'ValueRangeConstraint', 'min': 0, 'max': 4294967295}], 'constraints_repr': None, 'enums': None, 'used_by': ['SNMPv2-MIB::sysUpTime', 'IF-MIB::ifLastChange', 'IF-MIB::ifTableLastChan
+
+
+skStorageCapacity', 'HOST-RESOURCES-MIB::hrPartitionSize', 'HOST-RESOURCES-MIB::hrSWRunPerfMem']}
+2026-01-25 16:00:50.555 WARNING app.generator [MainThread] No canonical type info found for type NoneType (symbol hrStorageTable)
+2026-01-25 16:00:50.555 WARNING app.generator [MainThread] No canonical type info found for type NoneType (symbol hrStorageEntry)
+2026-01-25 16:00:50.555 DEBUG app.generator [MainThread] Using canonical type info for type Integer32: {'base_type': Non
+                                                                                                        
+                                                                                                        ']}
+2026-01-25 16:00:50.558 ERROR app.snmp_agent [MainThread] Failed to generate behavior JSON for /Users/mintz/code/snmpmore/compiled-mibs/HOST-RESOURCES-MIB.py: 'list' object has no attribute 'items'
+2026-01-25 16:00:50.558 INFO app.snmp_agent [MainThread] Generating behavior JSON for: /Users/mintz/code/snmpmore/compiled-mibs/HOST-RESOURCES-TYPES.py
+2026-01-25 16:00:50.596 DEBUG app.generator [MainThread] Extracted MIB info for HOST-RESOURCES-TYPES: []
+2026-
