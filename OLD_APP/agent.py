@@ -169,14 +169,14 @@ class SNMPAgent:
             if mib_str in exported_mib_map:
                 try:
                     mibBuilder.load_modules(mib_str)
-                    mib_symbols = mibBuilder.mibSymbols.get(mib_str, {})
-                    registry.add_types_from_mib_symbols(mib_str, mib_symbols)
+                    # mib_symbols = mibBuilder.mibSymbols.get(mib_str, {})
+                    # registry.add_types_from_mib_symbols(mib_str, mib_symbols)
                 except Exception as e:
                     print(f"Could not register types from {mib_str}: {e}")
             else:
                 print(f"Compiled MIB not found for {mib_str} in {compiled_dir}")
                 missing_mibs.append(mib_str)
-        print("Registered type keys:", registry.keys())
+        print("Registered type keys:", registry.registry.keys())
         if missing_mibs:
             print("Missing compiled MIBs:", missing_mibs)
 
