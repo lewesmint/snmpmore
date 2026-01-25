@@ -1,5 +1,5 @@
 import pytest
-from app.syntax_resolver import resolve_syntax_name, normalise_syntax_name
+from OLD_APP.syntax_resolver import resolve_syntax_name, normalise_syntax_name
 
 def test_resolve_syntax_name_known_tcs() -> None:
     assert resolve_syntax_name("DisplayString") == "OctetString"

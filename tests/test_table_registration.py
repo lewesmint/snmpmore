@@ -3,7 +3,7 @@
 
 
 import pytest
-from app.agent import SNMPAgent
+from app.snmp_agent import SNMPAgent
 from typing import Generator, Any
 from pytest_mock import MockerFixture
 

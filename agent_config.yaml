@@ -1,7 +1,7 @@
 
 # Logging configuration
 logger:
-  level: INFO
+  level: DEBUG
   log_dir: logs
   log_file: snmp-agent.log
   console: true

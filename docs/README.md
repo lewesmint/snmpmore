@@ -1,20 +1,40 @@
 # SNMP AgentX Subagent Demo
 
-A demonstration of implementing a custom enterprise MIB using SNMP AgentX protocol with Python and Net-SNMP.
+
+A demonstration of implementing a custom enterprise MIB using SNMP AgentX protocol with Python and Net-SNMP, and a modular SNMP agent architecture using PySNMP.
 
 ## What This Demonstrates
+
 
 This project shows how to:
 - Create an SNMP subagent that extends the standard `snmpd` daemon
 - Register custom enterprise OIDs (scalars and tables)
 - Handle common AgentX deployment challenges (permissions, views, persistence)
 - Build a production-ready subagent with retry logic and graceful shutdown
+- Implement a modular SNMP agent in Python using PySNMP, with a canonical type registry and behaviour-driven MIB logic
 
 ## Architecture
 
 **AgentX** is a protocol that allows multiple agents to serve different parts of the MIB tree:
 - **Master Agent** (`snmpd`) - handles SNMP requests from the network
 - **Subagent** (`my-agentx.py`) - registers custom OIDs and responds to queries for them
+
+### Modular SNMP Agent Architecture (PySNMP)
+
+The main orchestrator for the SNMP agent is now `SNMPAgent` (in `app/snmp_agent.py`). The legacy `app/agent.py` is deprecated and only a stub; all new agent logic is in `snmp_agent.py`.
+
+#### Canonical Type Registry
+- The canonical type registry is implemented in `app/type_registry.py`, mapping OIDs to type definitions.
+- This registry is populated by the recorder and exported to `types.json`.
+- All SNMP operations (including trap handling) consult the type registry for type information, ensuring consistency and correctness.
+
+#### Workflow
+- MIB compilation and behaviour generation are handled by dedicated modules (`app/generator.py`, etc.).
+- Behaviour JSON files are generated from compiled MIBs and used to configure agent behaviour.
+- The agent consults both the type registry and behaviour files for MIB object handling.
+
+#### Entry Points
+- Standalone and REST entry points use `SNMPAgent`.
 
 The subagent in this demo registers under `.1.3.6.1.4.1.99999` (a test enterprise number) and exposes:
 - **Scalars**: A string, counter, and gauge
@@ -285,6 +305,7 @@ export SNMP_PERSISTENT_FILE=~/.snmp/MyEnterpriseAgent.conf
 
 ## PySNMP Agents (Alternative Implementations)
 
+
 This repository includes pure-Python SNMP agent implementations using the `pysnmp` library. Unlike the AgentX subagent, these run as standalone SNMP agents.
 
 ### Simple Example: `simple-snmp-agent.py`
@@ -316,7 +337,16 @@ This is the **best starting point** if you want to understand how pysnmp works b
 
 A complete SNMP agent implementation that uses a **data-driven approach** where MIB object definitions are loaded from JSON behaviour files rather than being hard-coded. This makes it easy to modify or extend the MIB without changing the agent code.
 
+### Modular Agent Example: `snmp_agent.py`
+
+The recommended agent implementation is now modular, using the `SNMPAgent` class in `app/snmp_agent.py`. This agent:
+- Loads type definitions from the canonical registry (`app/type_registry.py` and `types.json`)
+- Loads behaviour definitions from JSON files generated from compiled MIBs
+- Registers and serves MIB objects according to the registry and behaviour files
+- Supports both standalone and REST entry points
+
 ### Important: MIB Class Imports in pysnmp
+
 
 When working with pysnmp, **you cannot import MIB classes directly** from `pysnmp.smi`. Instead, you must use the `mibBuilder.import_symbols()` method after initializing the MIB builder.
 
@@ -364,7 +394,7 @@ This pattern is used throughout the pysnmp codebase and is the **only correct wa
 
 #### In a Class Context
 
-If you're building an SNMP agent as a class (like in `my-pysnmp-agent.py`), store the imported symbols as instance attributes:
+If you're building an SNMP agent as a class (like in `snmp_agent.py`), store the imported symbols as instance attributes:
 
 ```python
 class SNMPAgent:
@@ -394,6 +424,7 @@ class SNMPAgent:
 
 ### Mock Behaviour Files
 
+
 The pysnmp agent uses **behaviour definition files** (JSON) to configure MIB objects. These files are located in the `mock-behaviour/` directory and are generated from compiled MIBs.
 
 #### What Are Behaviour Files?
@@ -409,6 +440,7 @@ They are the output of the `mib_to_json.py` script, which extracts metadata from
 #### Generating Behaviour Files
 
 ```bash
+
 # Compile your MIB first (if not already done)
 python compile_mib.py data/mibs/CISCO-ALARM-MIB.my
 
@@ -461,7 +493,8 @@ view   systemplusagentx  included   .1.3.6.1.4.1.YOUR_PEN_HERE
 
 ### Add Your Own Metrics
 
-See the examples in `my-agentx.py`:
+
+See the examples in `my-agentx.py` and `app/snmp_agent.py`:
 - **Scalars**: `agent.OctetString()`, `agent.Integer32()`, `agent.Unsigned32()`
 - **Tables**: `agent.Table()` with rows and columns
 - **Update logic**: Modify `update_values()` to pull real data from your system
@@ -539,8 +572,10 @@ For production use, consider:
 
 ## References
 
+
 - [Net-SNMP AgentX Documentation](https://www.net-snmp.org/docs/man/snmpd.html)
 - [netsnmpagent Python Library](https://pypi.org/project/netsnmpagent/)
+- [PySNMP Documentation](https://pysnmp.readthedocs.io/en/latest/)
 - [IANA Private Enterprise Numbers](https://www.iana.org/assignments/enterprise-numbers/)
 - [RFC 2741 - Agent Extensibility (AgentX) Protocol](https://www.rfc-editor.org/rfc/rfc2741)
 

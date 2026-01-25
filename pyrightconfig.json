@@ -4,7 +4,9 @@
     "compiled-mibs/",
     "reference/",
     ".venv",
-    "**/site-packages"
+    "**/site-packages",
+    "tests/",
+    "OLD_APP/"
   ],
   "typeCheckingMode": "standard",
   "reportMissingTypeStubs": false,

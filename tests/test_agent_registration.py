@@ -3,7 +3,7 @@ import pytest
 from pytest_mock import MockerFixture
 from typing import Optional, Any
 
-from app.agent import SNMPAgent
+from app.snmp_agent import SNMPAgent
 
 class DummyAppConfig:
     def __init__(self, mibs: list[str]) -> None:

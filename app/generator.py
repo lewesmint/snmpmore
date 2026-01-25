@@ -1,11 +1,12 @@
+
 import os
 import re
 import json
 from typing import Dict, Any, cast, Optional
 from pysnmp.smi import builder
-
-
 from app.app_logger import AppLogger
+
+from app.type_registry import TypeRegistry
 
 logger = AppLogger.get(__name__)
 
@@ -64,6 +65,7 @@ class BehaviourGenerator:
         Returns:
             Dictionary mapping symbol names to their metadata
         """
+
         mibBuilder = builder.MibBuilder()
         mibBuilder.add_mib_sources(builder.DirMibSource(os.path.dirname(mib_py_path)))
         mibBuilder.load_modules(mib_name)
@@ -73,11 +75,8 @@ class BehaviourGenerator:
         from pysnmp.smi import instrum, exval, builder as smi_builder
         for symbol_name, symbol_obj in mib_symbols.items():
             symbol_name_str: str = str(cast(Any, symbol_name))
-            # Only process real MIB nodes (skip classes, constants, etc.)
-            # Must have getName and getSyntax as bound methods (not just attributes)
             if not (hasattr(symbol_obj, 'getName') and hasattr(symbol_obj, 'getSyntax')):
                 continue
-            # Ensure getName is a method bound to the instance
             try:
                 oid = symbol_obj.getName()
                 syntax_obj = symbol_obj.getSyntax()
@@ -86,11 +85,17 @@ class BehaviourGenerator:
             except TypeError:
                 continue
 
-            # Extract type metadata (base type, constraints, enums)
-            type_info = self._extract_type_info(syntax_obj, syntax)
+            # Load the canonical type registry from JSON (singleton per process)
+            if not hasattr(self, '_type_registry'):
+                self._type_registry = self._load_type_registry()
+            type_info = self._type_registry.get(syntax)
+            if type_info is None:
+                logger.warning(f"No canonical type info found for type {syntax} (symbol {symbol_name_str})")
+            else:
+                logger.debug(f"Using canonical type info for type {syntax}: {type_info}")
 
             # Provide sensible default initial values based on type
-            initial_value = self._get_default_value_from_type_info(type_info, symbol_name_str)
+            initial_value = self._get_default_value_from_type_info(type_info or {}, symbol_name_str)
             dynamic_func = self._get_dynamic_function(symbol_name_str)
 
             result[symbol_name_str] = {
@@ -105,10 +110,19 @@ class BehaviourGenerator:
         # Detect tables that inherit their index from another table (AUGMENTS pattern)
         # This needs to be done after all symbols are collected
         table_entries = {name: obj for name, obj in mib_symbols.items()
-                        if hasattr(obj, 'getIndexNames')}
+                if hasattr(obj, 'getIndexNames')}
         self._detect_inherited_indexes(result, table_entries, mib_name)
 
+        logger.debug(f"Extracted MIB info for {mib_name}: {list(result.keys())}")
         return result
+
+    def _load_type_registry(self) -> Dict[str, Any]:
+        """Load the canonical type registry from the exported JSON file."""
+        registry_path = os.path.join('data', 'types.json')
+        if not os.path.exists(registry_path):
+            raise FileNotFoundError(f"Type registry JSON not found at {registry_path}. Run the type recorder/export step first.")
+        with open(registry_path, 'r') as f:
+            return cast(Dict[str, Any], json.load(f))
 
     def _detect_inherited_indexes(self, result: Dict[str, Any],
                                    table_entries: Dict[str, Any],

@@ -24,6 +24,37 @@ if TYPE_CHECKING:
 
 from typing import Any
 
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter that adds color to log levels for console output."""
+
+    # ANSI color codes
+    COLORS = {
+        'DEBUG': '\033[36m',      # Cyan
+        'INFO': '\033[32m',       # Green
+        'WARNING': '\033[33m',    # Yellow
+        'ERROR': '\033[31m',      # Red
+        'CRITICAL': '\033[35m',   # Magenta
+    }
+    RESET = '\033[0m'
+
+    def format(self, record: logging.LogRecord) -> str:
+        # Save the original levelname
+        original_levelname = record.levelname
+
+        # Add color to the levelname
+        if record.levelname in self.COLORS:
+            record.levelname = f"{self.COLORS[record.levelname]}{record.levelname}{self.RESET}"
+
+        # Format the record
+        result = super().format(record)
+
+        # Restore the original levelname
+        record.levelname = original_levelname
+
+        return result
+
+
 class AppLogger:
     _configured: bool = False
 
@@ -109,7 +140,9 @@ class AppLogger:
         if config.console:
             console_handler = logging.StreamHandler()
             console_handler.setLevel(level)
-            console_handler.setFormatter(formatter)
+            # Use colored formatter for console output
+            colored_formatter = ColoredFormatter(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S")
+            console_handler.setFormatter(colored_formatter)
             root.addHandler(console_handler)
 
         AppLogger._suppress_third_party_loggers()

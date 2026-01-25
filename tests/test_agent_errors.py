@@ -1,5 +1,5 @@
 import pytest
-from app.agent import SNMPAgent
+from app.snmp_agent import SNMPAgent
 from typing import Any, List
 
 class DummyAppConfig:

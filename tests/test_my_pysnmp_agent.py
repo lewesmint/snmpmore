@@ -5,7 +5,7 @@ from collections.abc import Generator
 import pytest
 from pytest_mock import MockerFixture
 
-from app.agent import SNMPAgent
+from app.snmp_agent import SNMPAgent
 
 
 @pytest.fixture

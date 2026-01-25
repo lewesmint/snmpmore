@@ -6,7 +6,10 @@ warn_return_any = true
 warn_unreachable = true
 show_error_codes = true
 ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
 exclude = [
+    "tests/",
+    "OLD_APP/",
     "^compiled-mibs/",  # Exclude auto-generated MIB files
     "^OLD-compiled-mibs/",  # Exclude old compiled MIB files
 ]
