@@ -12,6 +12,7 @@ from pathlib import Path
 import json
 import time
 from typing import Any, Dict, Optional
+import pysnmp
 
 class SNMPAgent:
 
@@ -23,6 +24,13 @@ class SNMPAgent:
         else:
             self.app_config = AppConfig(config_path)
         self.logger = AppLogger.get(__name__)
+
+        # Enable pysnmp debugging
+        from pysnmp import debug
+        # Use 'all' for full debugging, or specific flags like 'dsp', 'msgproc', 'secmod', etc.
+        debug.setLogger(debug.Debug('all'))
+        self.logger.info("PySNMP debugging enabled")
+
         self.config_path = config_path
         self.host = host
         self.port = port

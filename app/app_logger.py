@@ -145,10 +145,17 @@ class AppLogger:
             console_handler.setFormatter(colored_formatter)
             root.addHandler(console_handler)
 
-        AppLogger._suppress_third_party_loggers()
+        AppLogger._suppress_third_party_loggers(level)
 
     @staticmethod
-    def _suppress_third_party_loggers() -> None:
+    def _suppress_third_party_loggers(level: int) -> None:
         logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
         logging.getLogger("uvicorn.error").setLevel(logging.INFO)
         logging.getLogger("asyncio").setLevel(logging.WARNING)
+
+        # Only suppress pysnmp loggers if not in DEBUG mode
+        if level > logging.DEBUG:
+            logging.getLogger("pysnmp").setLevel(logging.WARNING)
+        else:
+            # Enable pysnmp logging at DEBUG level
+            logging.getLogger("pysnmp").setLevel(logging.DEBUG)
